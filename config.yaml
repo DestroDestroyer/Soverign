@@ -1,0 +1,93 @@
+user:
+  name: ""
+telemetry:
+  enabled: true
+daemon:
+  port: 3142
+  data_dir: /root/.soverign
+  db_path: /root/.soverign/soverign.db
+channels:
+  telegram:
+    enabled: false
+    bot_token: ""
+    allowed_users: []
+  discord:
+    enabled: false
+    bot_token: ""
+    allowed_users: []
+stt:
+  provider: groq
+  local:
+    endpoint: ""
+    server_type: whisper_cpp
+tts:
+  enabled: true
+  provider: edge
+  voice: en-US-GuyNeural
+  rate: +0%
+  volume: +0%
+voice:
+  wake_engine: openwakeword
+  realtime:
+    enabled: false
+    model: gpt-realtime-2
+    reasoning_effort: low
+    max_session_minutes: 10
+desktop:
+  enabled: true
+  sidecar_port: 9224
+  auto_launch: true
+  tree_depth: 5
+  snapshot_max_elements: 60
+awareness:
+  enabled: true
+  capture_interval_ms: 7000
+  min_change_threshold: 0.02
+  cloud_vision_enabled: true
+  cloud_vision_cooldown_ms: 30000
+  stuck_threshold_ms: 120000
+  struggle_grace_ms: 45000
+  struggle_cooldown_ms: 90000
+  suggestion_rate_limit_ms: 60000
+  overlay_autolaunch: true
+  retention:
+    full_hours: 1
+    key_moment_hours: 24
+personality:
+  core_traits:
+    - loyal
+    - efficient
+    - proactive
+    - respectful
+    - adaptive
+  assistant_name: Soverign
+sites:
+  enabled: true
+  projects_dir: ~/.soverign/projects
+  port_range_start: 4000
+  port_range_end: 4999
+  auto_commit: true
+  max_concurrent_servers: 3
+authority:
+  default_level: 3
+  governed_categories:
+    - send_email
+    - send_message
+    - make_payment
+  overrides: []
+  context_rules: []
+  learning:
+    enabled: true
+    suggest_threshold: 5
+  emergency_state: killed
+heartbeat:
+  interval_minutes: 15
+  active_hours:
+    start: 8
+    end: 23
+  aggressiveness: aggressive
+active_role: personal-assistant
+onboarding:
+  setup_completed_at: 1781946144788
+  tutorial_completed_at: 1781946440381
+  setup_skipped_profile: true

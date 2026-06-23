@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.next/
+*.log
+__pycache__/
+.agents/
+*.txt
+*.mp4
+*.png
+credentials.json
+drive_token.json
+.secrets.enc
+jarvis-core/node_modules/
+jarvis-desktop/node_modules/
