@@ -398,6 +398,28 @@ ipcMain.handle('scan-hardware', () => {
           recommended,
           recommendation,
         });
+        });
+      }
+    );
+  });
+});
+
+// Fine-grained query for just GPU VRAM
+ipcMain.handle('get-gpu-vram', () => {
+  return new Promise((resolve) => {
+    exec(
+      'powershell -NoProfile -Command "Get-WmiObject Win32_VideoController | Select-Object -First 1 AdapterRAM | ConvertTo-Json"',
+      { timeout: 8000 },
+      (err, stdout) => {
+        if (!err && stdout && stdout.trim()) {
+          try {
+            const gpu = JSON.parse(stdout.trim());
+            const adapterRam = Number(gpu.AdapterRAM) || 0;
+            const gpuVramGb = Math.round(adapterRam / (1024 ** 3));
+            return resolve({ success: true, gpuVramGb });
+          } catch (e) {}
+        }
+        resolve({ success: false, gpuVramGb: 0 });
       }
     );
   });

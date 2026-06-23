@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   getApiConfig: () => ipcRenderer.invoke('get-api-config'),
   scanHardware: () => ipcRenderer.invoke('scan-hardware'),
   getSystemSpecs: () => ipcRenderer.invoke('scan-hardware'),
+  getGpuVram: () => ipcRenderer.invoke('get-gpu-vram'),
   getCompatibleModels: (ram, vram) => ipcRenderer.invoke('get-compatible-models', ram, vram),
   refreshModelPool: () => ipcRenderer.invoke('refresh-model-pool'),
   startWatchdog: () => ipcRenderer.invoke('start-watchdog'),
