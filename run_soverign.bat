@@ -52,14 +52,14 @@ if not exist "%USERPROFILE%\.soverign" (
 :: ── Step 4: Launch daemon in background ─────────────────────────────────────
 echo [INFO] Starting Soverign daemon...
 set DAEMON_DIR=%~dp0soverign-core
-if not exist "%DAEMON_DIR%\src\index.ts" (
+if not exist "%DAEMON_DIR%\src\daemon\index.ts" (
   echo [ERROR] soverign-core not found at: %DAEMON_DIR%
   echo [ERROR] Please ensure you are running from the Soverign project root.
   pause
   exit /b 1
 )
 
-start "Soverign Daemon" /min cmd /c "cd /d "%DAEMON_DIR%" && bun run src/index.ts >> "%USERPROFILE%\.soverign\soverign.log" 2>&1"
+start "Soverign Daemon" /min cmd /c "cd /d "%DAEMON_DIR%" && bun start >> "%USERPROFILE%\.soverign\soverign.log" 2>&1"
 
 :: Wait for daemon to start (poll port 3142)
 echo [INFO] Waiting for daemon to start...
