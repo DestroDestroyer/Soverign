@@ -88,6 +88,7 @@ let daemonRunning = false;
 let sidecarRunning = false;
 let activeTab = 'daemon-logs';
 let webviewLoaded = false;
+let statusCheckInProgress = false; // prevent overlapping 3s polls
 
 // Initialize app
 async function init() {
@@ -129,7 +130,8 @@ async function init() {
   if (appConfig.autoStartDaemon !== false && !daemonRunning) {
     bootDaemon();
   }
-  if (appConfig.autoStartSidecar !== false && !sidecarRunning) {
+  // Only auto-start sidecar if a token is already configured (avoids alert on launch)
+  if (appConfig.autoStartSidecar !== false && !sidecarRunning && appConfig.token) {
     startSidecar();
   }
 }
@@ -320,13 +322,19 @@ async function scanHardware() {
 
 // Check Daemon and Sidecar status
 async function checkSystemStatus() {
-  // 1. Daemon check
-  const daemonStatus = await window.api.checkDaemonStatus();
-  updateDaemonUI(daemonStatus);
+  if (statusCheckInProgress) return; // skip if previous check is still running
+  statusCheckInProgress = true;
+  try {
+    // 1. Daemon check
+    const daemonStatus = await window.api.checkDaemonStatus();
+    updateDaemonUI(daemonStatus);
 
-  // 2. Sidecar check
-  const sidecarStatus = await window.api.checkSidecarStatus();
-  updateSidecarUI(sidecarStatus);
+    // 2. Sidecar check
+    const sidecarStatus = await window.api.checkSidecarStatus();
+    updateSidecarUI(sidecarStatus);
+  } finally {
+    statusCheckInProgress = false;
+  }
 }
 
 function updateDaemonUI(isRunning) {
@@ -447,7 +455,7 @@ async function bootDaemon() {
 }
 
 async function stopDaemon() {
-  if (confirm('Are you sure you want to shut down the WSL Soverign daemon?')) {
+  if (confirm('Are you sure you want to shut down the Soverign daemon?')) {
     daemonStatusDot.className = 'status-indicator pending';
     daemonStatusText.textContent = 'Stopping...';
     btnStopDaemon.disabled = true;
@@ -499,33 +507,10 @@ async function startAllServices() {
 
 // Config Saving Actions
 async function saveToken() {
-  const token = sidecarTokenInput.value.trim();
-  appConfig.token = token;
-  
-  await window.api.saveConfig({ token });
-  appendLog('sidecar', `[SYSTEM] Saved sidecar enrollment token.\n`);
-  
-  // Flash visual save feedback
-  const originalText = btnSaveToken.textContent;
-  btnSaveToken.textContent = '✓ Saved & Applied';
-  btnSaveToken.style.background = 'linear-gradient(135deg, #00e676, #00b0ff)';
-  
-  setTimeout(() => {
-    btnSaveToken.textContent = originalText;
-    btnSaveToken.style.background = '';
-  }, 2000);
-
-  // If already running, restart with the new token
-  if (sidecarRunning) {
-    appendLog('sidecar', `[SYSTEM] Restarting sidecar with new token...\n`);
-    await stopSidecar();
-    await startSidecar();
-  } else if (token) {
-    // If not running and auto-start configured, start it
-    if (appConfig.autoStartSidecar !== false) {
-      await startSidecar();
-    }
-  }
+  // NOTE: The sidecar token input was consolidated into the Advanced Settings
+  // modal (saved via saveSettings). This function is now a no-op shim kept
+  // for backwards compatibility. Token is managed via appConfig.token.
+  console.warn('[saveToken] Deprecated: token is now saved via Advanced Settings modal.');
 }
 
 async function saveSettings() {
