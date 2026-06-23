@@ -46,6 +46,12 @@ body {
   position: relative;
 }
 
+@keyframes marbleShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 /* App Container Layout */
 .app-container {
   display: flex;
@@ -845,11 +851,20 @@ body.soverign-activated .settings-checkbox label {
 
 /* Smooth layout transition for app view */
 .app-container {
-  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.sidebar, .main-content {
-  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+/* Sidebar uses max-width transition for smooth collapse without layout jump */
+.sidebar {
+  transition: max-width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s ease,
+              padding 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s ease,
+              background-color 0.3s ease;
+}
+
+.main-content {
+  transition: background-color 0.3s ease;
 }
 
 /* Background Particle Orbs */
@@ -980,26 +995,26 @@ body.soverign-activated .btn-sidebar-toggle:hover {
   box-shadow: 0 4px 15px rgba(37, 99, 235, 0.12);
 }
 
+/* Sidebar collapse — uses max-width so flexbox collapses smoothly without jump */
 .app-container.sidebar-collapsed .sidebar {
-  transform: translateX(-100%);
-  width: 0;
+  max-width: 0;
   padding: 0;
   border-right: none;
   opacity: 0;
   pointer-events: none;
-  margin-right: -280px; /* pull back layout flow */
+  overflow: hidden;
 }
 
-.app-container.sidebar-collapsed .main-content {
-  padding-left: 0;
-}
-
-/* Glassmorphism theme overrides */
+/* Glassmorphism sidebar overrides */
 .sidebar {
   backdrop-filter: blur(var(--blur-amount));
   -webkit-backdrop-filter: blur(var(--blur-amount));
   background-color: var(--sidebar-bg);
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.05);
+  max-width: 280px;   /* anchor for collapse transition */
+  overflow: hidden;   /* clip content during collapse animation */
+  width: 280px;       /* keep fixed width; max-width controls collapse */
+  flex-shrink: 0;
 }
 
 .main-content {
@@ -1117,13 +1132,10 @@ input#api-key-input:focus,
   background: radial-gradient(circle, rgba(74, 144, 226, 0.06) 0%, rgba(74, 144, 226, 0) 70%);
 }
 
-/* Smooth transition animations */
-.sidebar, .main-content, .service-card, .config-card, .settings-modal {
+/* Smooth transition animations — excludes sidebar (handled separately above) */
+.main-content, .service-card, .config-card, .settings-modal {
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), 
               opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), 
               background-color 0.3s ease, 
               border-color 0.3s ease;
 }
-
-
-
