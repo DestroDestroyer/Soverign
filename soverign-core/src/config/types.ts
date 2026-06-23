@@ -257,11 +257,14 @@ export type LLMProviderKind =
  * the provider class (e.g. `anthropic`). Specify `kind` explicitly when you
  * want multiple instances of the same class (e.g. two ollama backends with
  * different keys/URLs).
+ * 
+ * FIXED: api_key is now required for cloud providers, optional only for
+ * local/self-hosted providers (identified by kind: 'ollama', 'openai_compatible').
  */
 export type LLMProviderEntry = {
   /** Which provider class to use. Defaults to the map key. */
   kind?: LLMProviderKind;
-  /** API key for cloud providers. */
+  /** API key for cloud providers. Required unless using local/self-hosted. */
   api_key?: string;
   /** Base URL for self-hosted / local providers (ollama, openai-compatible, litellm). */
   base_url?: string;

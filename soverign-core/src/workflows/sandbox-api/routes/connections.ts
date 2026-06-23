@@ -59,11 +59,17 @@ export function createConnectionsRoute(deps: ConnectionsRouteDeps): RouteHandler
     // pieceName-prefixed externalId, so this branch is a soft fallback.
     const pieceName = url.searchParams.get("pieceName") ?? "*";
 
-    const resolved = await deps.credentialResolver.resolve({
-      projectId,
-      pieceName,
-      externalId,
-    });
+    let resolved;
+    try {
+      resolved = await deps.credentialResolver.resolve({
+        projectId,
+        pieceName,
+        externalId,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return err(`credential resolution failed: ${msg}`, 500);
+    }
     if (!resolved) return err(`connection ${externalId} not found`, 404);
 
     // Ensure value.type is set so the engine's switch() in

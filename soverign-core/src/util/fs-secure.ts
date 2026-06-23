@@ -12,7 +12,7 @@
  *   swallowing them.
  */
 
-import { chmod, mkdir, open } from 'node:fs/promises';
+import { chmod, mkdir, open, rename } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -54,14 +54,17 @@ export async function secureWriteFile(
   mode: number,
   label: string,
 ): Promise<void> {
+  const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW;
-  const handle = await open(filePath, flags, mode);
+  const handle = await open(tmpPath, flags, mode);
   try {
     await handle.writeFile(data);
+    await handle.sync();
   } finally {
     await handle.close();
   }
-  await chmodWithWarning(filePath, mode, label);
+  await chmodWithWarning(tmpPath, mode, label);
+  await rename(tmpPath, filePath);
 }
 
 /** Chmod with a `console.warn` on failure rather than silently swallowing. */

@@ -8,7 +8,8 @@
  */
 
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
-import { constants as fsConstants, existsSync, readFileSync, mkdirSync, chmodSync, openSync, writeSync, closeSync } from 'node:fs';
+import { constants as fsConstants, existsSync, readFileSync, mkdirSync, chmodSync, openSync, writeSync, closeSync, renameSync, fsyncSync, statSync } from 'node:fs';
+import { open, chmod, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -32,17 +33,36 @@ function ensureDir(): void {
  * is a symlink, preventing redirection to an attacker-controlled target.
  */
 function writeSecretFileSync(path: string, data: string | Buffer, mode: number): void {
+  const tmpPath = `${path}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW;
-  const fd = openSync(path, flags, mode);
+  const fd = openSync(tmpPath, flags, mode);
   try {
     writeSync(fd, data as never);
+    fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
-  try { chmodSync(path, mode); } catch (err) {
+  try { chmodSync(tmpPath, mode); } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Keychain] Failed to chmod ${path} to ${mode.toString(8)}: ${message}`);
+    console.warn(`[Keychain] Failed to chmod ${tmpPath} to ${mode.toString(8)}: ${message}`);
   }
+  renameSync(tmpPath, path);
+}
+
+async function writeSecretFileAsync(path: string, data: string | Buffer, mode: number): Promise<void> {
+  const tmpPath = `${path}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW;
+  const handle = await open(tmpPath, flags, mode);
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try { await chmod(tmpPath, mode); } catch (err) {
+    console.warn(`[Keychain] Failed to chmod ${tmpPath} to ${mode.toString(8)}:`, err);
+  }
+  await rename(tmpPath, path);
 }
 
 function getOrCreateKey(): Buffer {
@@ -73,13 +93,22 @@ function decrypt(key: Buffer, data: Buffer): string {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf-8');
 }
 
+let cachedSecrets: Record<string, string> | null = null;
+let lastMtime: number = 0;
+
 function loadSecrets(): Record<string, string> {
   if (!existsSync(SECRETS_PATH)) return {};
   try {
+    const stats = statSync(SECRETS_PATH);
+    if (cachedSecrets && stats.mtimeMs === lastMtime) {
+      return cachedSecrets;
+    }
     const key = getOrCreateKey();
     const raw = readFileSync(SECRETS_PATH);
     const json = decrypt(key, raw);
-    return JSON.parse(json);
+    cachedSecrets = JSON.parse(json);
+    lastMtime = stats.mtimeMs;
+    return cachedSecrets!;
   } catch (err) {
     console.warn('[Keychain] Failed to decrypt secrets file, starting fresh:', err);
     return {};
@@ -91,7 +120,15 @@ function saveSecrets(secrets: Record<string, string>): void {
   const key = getOrCreateKey();
   const json = JSON.stringify(secrets);
   const encrypted = encrypt(key, json);
-  writeSecretFileSync(SECRETS_PATH, encrypted, 0o600);
+  
+  cachedSecrets = secrets;
+  try {
+    lastMtime = existsSync(SECRETS_PATH) ? statSync(SECRETS_PATH).mtimeMs : 0;
+  } catch { /* ignore */ }
+
+  writeSecretFileAsync(SECRETS_PATH, encrypted, 0o600).catch(err => {
+    console.error('[Keychain] Async save failed:', err);
+  });
 }
 
 export function getSecret(name: string): string | null {

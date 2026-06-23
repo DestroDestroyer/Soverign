@@ -27,6 +27,7 @@ export class GoogleAuth {
   private tokens: GoogleTokens | null = null;
   private tokensPath: string;
   private redirectUri: string;
+  private refreshPromise: Promise<void> | null = null;
 
   constructor(
     clientId: string,
@@ -157,31 +158,43 @@ export class GoogleAuth {
       throw new Error('No refresh token available');
     }
 
-    const resp = await fetch(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        refresh_token: this.tokens.refresh_token,
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        grant_type: 'refresh_token',
-      }),
-    });
-
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`Token refresh failed: ${err}`);
+    if (this.refreshPromise) {
+      return this.refreshPromise;
     }
 
-    const data = await resp.json() as any;
+    this.refreshPromise = (async () => {
+      try {
+        const resp = await fetch(TOKEN_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            refresh_token: this.tokens!.refresh_token,
+            client_id: this.clientId,
+            client_secret: this.clientSecret,
+            grant_type: 'refresh_token',
+          }),
+        });
 
-    this.tokens = {
-      ...this.tokens,
-      access_token: data.access_token,
-      expiry_date: Date.now() + (data.expires_in ?? 3600) * 1000,
-    };
+        if (!resp.ok) {
+          const err = await resp.text();
+          throw new Error(`Token refresh failed: ${err}`);
+        }
 
-    await this.saveTokens(this.tokens);
-    console.log('[GoogleAuth] Token refreshed successfully');
+        const data = await resp.json() as any;
+
+        this.tokens = {
+          ...this.tokens!,
+          access_token: data.access_token,
+          expiry_date: Date.now() + (data.expires_in ?? 3600) * 1000,
+        };
+
+        await this.saveTokens(this.tokens);
+        console.log('[GoogleAuth] Token refreshed successfully');
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
   }
 }
