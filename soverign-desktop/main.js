@@ -638,6 +638,12 @@ ipcMain.handle('stop-watchdog', () => {
 
 ipcMain.handle('check-watchdog-status', () => watchdogProcess !== null);
 
+// Health check — used by preload.js healthCheck() API
+ipcMain.handle('health-check', async () => {
+  const isRunning = await checkDaemonPort();
+  return { status: isRunning ? 'running' : 'stopped', port: 3142 };
+});
+
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
