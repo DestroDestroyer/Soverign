@@ -473,6 +473,12 @@ async function bootDaemon() {
     // Check status again immediately
     await checkSystemStatus();
     btnBootSystem.disabled = false;
+    btnStartDaemon.disabled = false;
+
+    if (result && !result.success) {
+      showToast(`Daemon failed to start: ${result.error || 'Unknown error'}`, 'error');
+      logsDrawer.classList.remove('collapsed');
+    }
   }, 800);
 }
 

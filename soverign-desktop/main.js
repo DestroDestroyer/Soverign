@@ -287,6 +287,9 @@ ipcMain.handle('check-daemon-status', async () => {
   return isRunning;
 });
 
+// Direct-launch fallback — used when the scheduled task is not installed
+let daemonDirectProcess = null;
+
 ipcMain.handle('start-daemon', async () => {
   const isRunning = await checkDaemonPort();
   if (isRunning) {
@@ -301,16 +304,47 @@ ipcMain.handle('start-daemon', async () => {
   }
 
   const registered = await isTaskRegistered(DAEMON_TASK);
-  if (!registered) {
-    return {
-      success: false,
-      error: 'The 24/7 background service is not installed yet. Click "Install Background Service" first.'
-    };
+
+  if (registered) {
+    // ── Path A: Task Scheduler (24/7 mode) ──────────────────────────────
+    sendLog('daemon', '[SYSTEM] Starting Soverign Daemon (via Windows Task Scheduler)...\n');
+    await runSchtasks(`/run /tn "${DAEMON_TASK}"`);
+  } else {
+    // ── Path B: Direct bun spawn (no task installed) ─────────────────────
+    sendLog('daemon', '[SYSTEM] Task Scheduler service not installed — launching daemon directly...\n');
+    sendLog('daemon', `[SYSTEM] Command: ${config.bunPath || 'bun'} run ${daemonScript}\n`);
+
+    // Ensure log dir exists
+    if (!fs.existsSync(soverignDataDir)) {
+      fs.mkdirSync(soverignDataDir, { recursive: true });
+    }
+
+    const bunExe = config.bunPath || 'bun';
+    daemonDirectProcess = spawn(bunExe, ['run', daemonScript], {
+      cwd: coreDir,
+      windowsHide: true,
+      detached: false,
+      shell: false,
+    });
+
+    daemonDirectProcess.stdout?.on('data', (d) => sendLog('daemon', d.toString()));
+    daemonDirectProcess.stderr?.on('data', (d) => sendLog('daemon', d.toString()));
+    daemonDirectProcess.on('error', (err) => {
+      sendLog('daemon', `[ERROR] Failed to start daemon: ${err.message}\n`);
+      if (err.code === 'ENOENT') {
+        sendLog('daemon', `[HINT] "bun" not found. Set the correct Bun path in Advanced Settings.\n`);
+      }
+      daemonDirectProcess = null;
+    });
+    daemonDirectProcess.on('close', (code) => {
+      sendLog('daemon', `[SYSTEM] Daemon process exited (code ${code})\n`);
+      daemonDirectProcess = null;
+    });
+
+    sendLog('daemon', '[SYSTEM] Daemon process launched. Waiting for port 3142...\n');
   }
 
-  sendLog('daemon', '[SYSTEM] Starting Soverign Daemon (via Windows Task Scheduler)...\n');
-  await runSchtasks(`/run /tn "${DAEMON_TASK}"`);
-
+  // ── Wait for port to open (shared for both paths) ─────────────────────
   return new Promise((resolve) => {
     let attempts = 0;
     const interval = setInterval(async () => {
@@ -321,7 +355,7 @@ ipcMain.handle('start-daemon', async () => {
         sendLog('daemon', '[SYSTEM] Soverign Daemon is running on port 3142!\n');
         startLogTail();
         resolve({ success: true });
-      } else if (attempts >= 15) {
+      } else if (attempts >= 20) {
         clearInterval(interval);
         sendLog('daemon', '[WARNING] Port 3142 check timed out. Daemon may still be loading.\n');
         startLogTail();
@@ -334,9 +368,23 @@ ipcMain.handle('start-daemon', async () => {
 ipcMain.handle('stop-daemon', async () => {
   sendLog('daemon', '[SYSTEM] Stopping Soverign Daemon...\n');
   stopLogTail();
-  await runSchtasks(`/end /tn "${DAEMON_TASK}"`);
+
+  // Stop direct process if running
+  if (daemonDirectProcess) {
+    try { exec(`taskkill /pid ${daemonDirectProcess.pid} /T /F`); } catch (e) {}
+    daemonDirectProcess = null;
+  }
+
+  // Also stop the task if registered
+  const registered = await isTaskRegistered(DAEMON_TASK);
+  if (registered) {
+    await runSchtasks(`/end /tn "${DAEMON_TASK}"`);
+  }
+
   return { success: true };
 });
+
+
 
 // Pull a model via Ollama (native)
 ipcMain.handle('pull-model', (event, modelName) => {
