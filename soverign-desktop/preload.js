@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   refreshModelPool: () => ipcRenderer.invoke('refresh-model-pool'),
   startWatchdog: () => ipcRenderer.invoke('start-watchdog'),
   stopWatchdog: () => ipcRenderer.invoke('stop-watchdog'),
+  checkWatchdogStatus: () => ipcRenderer.invoke('check-watchdog-status'),
   healthCheck: () => ipcRenderer.invoke('health-check'),
 
   // Log event subscriptions

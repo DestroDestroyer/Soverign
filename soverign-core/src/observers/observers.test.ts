@@ -21,6 +21,13 @@ import {
 let testDir: string;
 beforeAll(() => {
   testDir = mkdtempSync(join(tmpdir(), 'soverign-test-'));
+
+  // Mock platform commands for clipboard and processes during tests to avoid slow PowerShell execution on Windows
+  ClipboardMonitor.prototype['readClipboard'] = async () => 'mocked clipboard content';
+  ProcessMonitor.prototype.getProcessList = async () => [
+    { pid: 1234, name: 'soverign-daemon', cpu: 0.1, memory: 50 },
+    { pid: 5678, name: 'electron', cpu: 1.2, memory: 150 }
+  ];
 });
 afterAll(() => {
   try { rmSync(testDir, { recursive: true }); } catch {}

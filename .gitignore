@@ -5,18 +5,39 @@ build/
 *.log
 __pycache__/
 .agents/
+
+# Binary / media
 *.txt
 *.mp4
 *.png
+*.jpg
+*.jpeg
+*.gif
+*.webm
+*.mkv
+*.wav
+*.mp3
+
+# Secrets
 credentials.json
 drive_token.json
 .secrets.enc
+*.key
+*.pem
+
+# Legacy Jarvis paths (renamed to Soverign)
 jarvis-core/node_modules/
 jarvis-desktop/node_modules/
 
-# Legacy video/novel generation scripts
+# ============================================================
+# BLOCK ALL VIDEO / NOVEL / AI-PIPELINE PROJECT FILES
+# (These are Gemini-generated and DO NOT belong to Soverign)
+# ============================================================
+COLAB_GUIDE.md
+PROJECT_SUMMARY_REPORT.md
 colab_launcher.py
 colab_pipeline.py
+colab_pipeline.log
 generate_demonic_rebirth.py
 generate_full_novel.py
 rebuild_video_locally.py
@@ -25,4 +46,31 @@ story_expander.py
 videoforge.py
 videoforge_elite.py
 videoforge_novel_edition.py
+heavenly_rebellion_colab.ipynb
+heavenly_rebellion_kaggle.ipynb
+heavenly-rebellion-video-pipeline.log
+Demonic_Rebirth_Script.txt
+Heavenly_Rebellion_Book1_Script.txt
+kernel-metadata.json
 
+# Root-level loose config/script files that don't belong to the Soverign app
+config.yaml
+config_types.ts
+sandbox_config.ts
+patch_soverign_roles.py
+test_img.png
+test_out.mp4
+test_out_fast.mp4
+test_out_pan.mp4
+info_artifacts.md
+info_mcps.md
+info_scripts.md
+info_skills.md
+
+# Jupyter / Kaggle artifacts
+*.ipynb
+
+# Python virtualenvs and caches
+.venv/
+env/
+*.pyc
