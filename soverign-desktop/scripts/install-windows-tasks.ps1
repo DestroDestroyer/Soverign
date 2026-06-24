@@ -1,75 +1,81 @@
 #Requires -RunAsAdministrator
 <#
-  Soverign — Install 24/7 Background Service
+  Soverign — Install 24/7 Background Services
   ---------------------------------------------------------------------------
-  Registers the Soverign Daemon (and, optionally, the Sidecar) as native
-  Windows Scheduled Tasks. Once installed, they:
+  Registers BOTH the Soverign Daemon AND the Sidecar as native Windows
+  Scheduled Tasks. Once installed they:
 
     - Start automatically every time you log on
     - Keep running even after you close the Soverign Desktop Console
-    - Auto-restart themselves if they crash
-    - Require ZERO extra software — no Docker, no WSL, no PM2, no cloud,
-      no internet. This uses only schtasks/Task Scheduler, built into
-      every copy of Windows.
+    - Auto-restart if they crash (RestartCount 999, interval 1 min)
+    - Require ZERO extra software — pure schtasks / Task Scheduler
 
   Usage (run as Administrator):
-    .\install-windows-tasks.ps1                  # daemon only
-    .\install-windows-tasks.ps1 -IncludeSidecar   # daemon + sidecar
+    .\install-windows-tasks.ps1
+    .\install-windows-tasks.ps1 -SkipSidecar    # daemon only
 #>
 
 param(
-  [switch]$IncludeSidecar
+  [switch]$SkipSidecar
 )
 
 $ErrorActionPreference = 'Stop'
 
+# ── Resolve bun.exe ──────────────────────────────────────────────────────────
 function Resolve-BunPath {
   $cmd = Get-Command bun.exe -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
-
   $fallback = Join-Path $env:USERPROFILE ".bun\bin\bun.exe"
   if (Test-Path $fallback) { return $fallback }
-
-  throw "bun.exe was not found on PATH or in $fallback. Install Bun for Windows first: https://bun.sh"
+  throw "bun.exe not found on PATH or at $fallback. Install Bun: https://bun.sh"
 }
 
-# ── Resolve paths ───────────────────────────────────────────────────────────
-$bunPath      = Resolve-BunPath
-$coreDir      = (Resolve-Path (Join-Path $PSScriptRoot "..\..\soverign-core")).Path
-$daemonScript = Join-Path $coreDir "src\daemon\index.ts"
+$bunPath = Resolve-BunPath
+
+# ── Resolve project paths ────────────────────────────────────────────────────
+# This script lives at:  <root>\soverign-desktop\scripts\install-windows-tasks.ps1
+# So the core dir is:   <root>\soverign-core
+$scriptDir    = $PSScriptRoot                                         # …\soverign-desktop\scripts
+$desktopDir   = (Get-Item $scriptDir).Parent.FullName                 # …\soverign-desktop
+$workspaceRoot = (Get-Item $desktopDir).Parent.FullName               # …\Soverign
+$coreDir      = Join-Path $workspaceRoot "soverign-core"
+
+$daemonScript  = Join-Path $coreDir "src\daemon\index.ts"
+$sidecarScript = Join-Path $coreDir "src\sidecar\index.ts"
 
 if (-not (Test-Path $daemonScript)) {
   throw "Daemon entry point not found: $daemonScript"
 }
+if (-not $SkipSidecar -and -not (Test-Path $sidecarScript)) {
+  Write-Host "[WARN] Sidecar entry point not found: $sidecarScript" -ForegroundColor Yellow
+  Write-Host "[WARN] Skipping sidecar registration." -ForegroundColor Yellow
+  $SkipSidecar = $true
+}
 
-$dataDir = Join-Path $env:USERPROFILE ".soverign"
-$logFile = Join-Path $dataDir "soverign.log"
+# ── Ensure log directory ─────────────────────────────────────────────────────
+$dataDir  = Join-Path $env:USERPROFILE ".soverign"
+$logFile  = Join-Path $dataDir "soverign.log"
+$sidecarLogFile = Join-Path $dataDir "sidecar.log"
+
 if (-not (Test-Path $dataDir)) {
   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 }
-if (-not (Test-Path $logFile)) {
-  New-Item -ItemType File -Path $logFile -Force | Out-Null
+foreach ($f in @($logFile, $sidecarLogFile)) {
+  if (-not (Test-Path $f)) { New-Item -ItemType File -Path $f -Force | Out-Null }
 }
 
-Write-Host "Bun:          $bunPath"
-Write-Host "Core dir:     $coreDir"
-Write-Host "Daemon entry: $daemonScript"
-Write-Host "Log file:     $logFile"
+Write-Host ""
+Write-Host "Bun:            $bunPath"      -ForegroundColor Cyan
+Write-Host "Core dir:       $coreDir"      -ForegroundColor Cyan
+Write-Host "Daemon script:  $daemonScript" -ForegroundColor Cyan
+if (-not $SkipSidecar) {
+  Write-Host "Sidecar script: $sidecarScript" -ForegroundColor Cyan
+}
+Write-Host "Log dir:        $dataDir"      -ForegroundColor Cyan
 Write-Host ""
 
-# ── Daemon task ──────────────────────────────────────────────────────────
-# Routed through cmd.exe so stdout/stderr keep landing in soverign.log,
-# exactly like the desktop app's log viewer already expects.
-$daemonCommandLine = "/c `"`"$bunPath`" run `"$daemonScript`" >> `"$logFile`" 2>&1`""
-
-$daemonAction = New-ScheduledTaskAction `
-  -Execute "cmd.exe" `
-  -Argument $daemonCommandLine `
-  -WorkingDirectory $coreDir
-
-$daemonTrigger = New-ScheduledTaskTrigger -AtLogOn
-
-$daemonSettings = New-ScheduledTaskSettingsSet `
+# ── Shared task settings ─────────────────────────────────────────────────────
+$commonSettings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
   -StartWhenAvailable `
@@ -78,58 +84,58 @@ $daemonSettings = New-ScheduledTaskSettingsSet `
   -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -Hidden
 
+# ── Daemon task ──────────────────────────────────────────────────────────────
+$daemonArg = "/c `"`"$bunPath`" run `"$daemonScript`" >> `"$logFile`" 2>&1`""
+
+$daemonAction  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $daemonArg -WorkingDirectory $coreDir
+$daemonTrigger = New-ScheduledTaskTrigger -AtLogOn
+
 Unregister-ScheduledTask -TaskName "SoverignDaemon" -Confirm:$false -ErrorAction SilentlyContinue
 
 Register-ScheduledTask `
-  -TaskName "SoverignDaemon" `
-  -Action $daemonAction `
-  -Trigger $daemonTrigger `
-  -Settings $daemonSettings `
-  -RunLevel Highest `
-  -Description "Soverign local AI daemon. Runs 24/7 in the background, restarts on crash." | Out-Null
+  -TaskName    "SoverignDaemon" `
+  -Action      $daemonAction `
+  -Trigger     $daemonTrigger `
+  -Settings    $commonSettings `
+  -RunLevel    Highest `
+  -Description "Soverign local AI daemon. Runs 24/7, restarts on crash." | Out-Null
 
 Write-Host "[OK] SoverignDaemon task registered." -ForegroundColor Green
 
-# ── Sidecar task (optional) ─────────────────────────────────────────────
-if ($IncludeSidecar) {
-  $sidecarCmd = Get-Command "soverign-sidecar.cmd" -ErrorAction SilentlyContinue
-  if ($sidecarCmd) {
-    $sidecarAction = New-ScheduledTaskAction -Execute $sidecarCmd.Source
+# ── Sidecar task ─────────────────────────────────────────────────────────────
+if (-not $SkipSidecar) {
+  $sidecarArg = "/c `"`"$bunPath`" run `"$sidecarScript`" >> `"$sidecarLogFile`" 2>&1`""
 
-    $sidecarTrigger = New-ScheduledTaskTrigger -AtLogOn
-    $sidecarTrigger.Delay = 'PT15S'   # give the daemon a 15s head start
+  $sidecarAction  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $sidecarArg -WorkingDirectory $coreDir
+  $sidecarTrigger = New-ScheduledTaskTrigger -AtLogOn
+  $sidecarTrigger.Delay = 'PT15S'   # 15s head-start for daemon
 
-    $sidecarSettings = New-ScheduledTaskSettingsSet `
-      -AllowStartIfOnBatteries `
-      -DontStopIfGoingOnBatteries `
-      -StartWhenAvailable `
-      -RestartCount 999 `
-      -RestartInterval (New-TimeSpan -Minutes 1) `
-      -ExecutionTimeLimit ([TimeSpan]::Zero) `
-      -Hidden
+  Unregister-ScheduledTask -TaskName "SoverignSidecar" -Confirm:$false -ErrorAction SilentlyContinue
 
-    Unregister-ScheduledTask -TaskName "SoverignSidecar" -Confirm:$false -ErrorAction SilentlyContinue
+  Register-ScheduledTask `
+    -TaskName    "SoverignSidecar" `
+    -Action      $sidecarAction `
+    -Trigger     $sidecarTrigger `
+    -Settings    $commonSettings `
+    -RunLevel    Highest `
+    -Description "Soverign sidecar. Runs 24/7 in the background, restarts on crash." | Out-Null
 
-    Register-ScheduledTask `
-      -TaskName "SoverignSidecar" `
-      -Action $sidecarAction `
-      -Trigger $sidecarTrigger `
-      -Settings $sidecarSettings `
-      -RunLevel Limited `
-      -Description "Soverign sidecar client. Runs 24/7 in the background." | Out-Null
-
-    Write-Host "[OK] SoverignSidecar task registered." -ForegroundColor Green
-  } else {
-    Write-Host "[SKIP] soverign-sidecar.cmd not found on PATH — sidecar task not created." -ForegroundColor Yellow
-  }
+  Write-Host "[OK] SoverignSidecar task registered." -ForegroundColor Green
 }
 
-# ── Start immediately so you don't have to log off/on ───────────────────
+# ── Start tasks immediately (no need to log off/on) ─────────────────────────
+Write-Host ""
+Write-Host "Starting tasks now..." -ForegroundColor Cyan
+
 Start-ScheduledTask -TaskName "SoverignDaemon"
-if ($IncludeSidecar -and (Get-ScheduledTask -TaskName "SoverignSidecar" -ErrorAction SilentlyContinue)) {
+Write-Host "[OK] SoverignDaemon started." -ForegroundColor Green
+
+if (-not $SkipSidecar) {
+  Start-Sleep -Seconds 3
   Start-ScheduledTask -TaskName "SoverignSidecar"
+  Write-Host "[OK] SoverignSidecar started." -ForegroundColor Green
 }
 
 Write-Host ""
-Write-Host "Done. Soverign now starts automatically at every login and restarts itself if it crashes." -ForegroundColor Cyan
-Write-Host "You can view/manage it any time in Task Scheduler (taskschd.msc) under the root folder." -ForegroundColor Cyan
+Write-Host "Done! Both services now run 24/7, survive app close, and restart on crash." -ForegroundColor Cyan
+Write-Host "Manage them via Task Scheduler (taskschd.msc) or the Soverign Console." -ForegroundColor Cyan

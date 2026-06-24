@@ -537,14 +537,14 @@ async function startAllServices() {
 async function installService() {
   if (!btnInstallService) return;
   btnInstallService.disabled = true;
-  if (serviceStatusText) serviceStatusText.textContent = 'Installing service...';
-  const includeSidecar = chkInstallSidecar ? chkInstallSidecar.checked : false;
+  if (serviceStatusText) serviceStatusText.textContent = 'Installing services... (approve the UAC prompt)';
   try {
-    const result = await window.api.installWindowsService(includeSidecar);
+    // Always installs both daemon + sidecar in one UAC prompt
+    const result = await window.api.installWindowsService();
     if (result.success) {
-      showToast('Background service installed successfully', 'success');
+      showToast('✅ Both services installed and running 24/7!', 'success');
     } else {
-      showToast(`Failed to install service: ${result.error}`, 'error');
+      showToast(`Failed: ${result.error}`, 'error');
     }
   } catch (error) {
     showToast(`Error: ${error.message}`, 'error');
@@ -576,16 +576,26 @@ async function uninstallService() {
 async function checkServiceStatus() {
   if (!serviceStatusText) return;
   try {
-    const isInstalled = await window.api.checkServiceInstalled();
-    if (isInstalled) {
-      serviceStatusText.textContent = 'Status: Service is installed and running.';
+    const status = await window.api.checkServiceInstalled();
+    // status is now { daemon, sidecar, both }
+    const daemonOk  = status?.daemon  ?? status === true;
+    const sidecarOk = status?.sidecar ?? false;
+
+    if (daemonOk && sidecarOk) {
+      serviceStatusText.textContent = '✅ Both services installed & running 24/7';
       serviceStatusText.style.color = '#00e676';
-      if (btnInstallService) btnInstallService.style.display = 'none';
+      if (btnInstallService)   btnInstallService.style.display   = 'none';
       if (btnUninstallService) btnUninstallService.style.display = 'block';
+    } else if (daemonOk) {
+      serviceStatusText.textContent = '⚠️ Daemon installed (sidecar missing — reinstall to add)';
+      serviceStatusText.style.color = '#ffd740';
+      if (btnInstallService)   btnInstallService.style.display   = 'block';
+      if (btnUninstallService) btnUninstallService.style.display = 'block';
+      if (btnInstallService) btnInstallService.textContent = '🔧 Reinstall (add sidecar)';
     } else {
-      serviceStatusText.textContent = 'Status: Service is not installed.';
+      serviceStatusText.textContent = '❌ Services not installed';
       serviceStatusText.style.color = 'var(--text-muted)';
-      if (btnInstallService) btnInstallService.style.display = 'block';
+      if (btnInstallService)   { btnInstallService.style.display = 'block'; btnInstallService.textContent = '⚡ Install 24/7 Services'; }
       if (btnUninstallService) btnUninstallService.style.display = 'none';
     }
   } catch (err) {
