@@ -23,6 +23,15 @@ contextBridge.exposeInMainWorld('api', {
   stopWatchdog: () => ipcRenderer.invoke('stop-watchdog'),
   checkWatchdogStatus: () => ipcRenderer.invoke('check-watchdog-status'),
   healthCheck: () => ipcRenderer.invoke('health-check'),
+  
+  // Service Installer
+  checkServiceInstalled: () => ipcRenderer.invoke('check-service-installed'),
+  installWindowsService: (includeSidecar) => ipcRenderer.invoke('install-windows-service', includeSidecar),
+  uninstallWindowsService: () => ipcRenderer.invoke('uninstall-windows-service'),
+
+  // Focus Mode
+  startFocusMode: () => ipcRenderer.invoke('start-focus-mode'),
+  stopFocusMode: () => ipcRenderer.invoke('stop-focus-mode'),
 
   // Log event subscriptions
   onLog: (callback) => {

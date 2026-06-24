@@ -6,9 +6,8 @@ const { spawn, exec } = require('child_process');
 const net = require('net');
 
 let mainWindow;
-let daemonProcess = null;
-let sidecarProcess = null;
 let logTailProcess = null;
+let watchdogProcess = null;
 const configPath = path.join(__dirname, 'config.json');
 
 // Native Windows data directory (same as what the Bun daemon uses)
@@ -19,12 +18,20 @@ const soverignConfigYaml = path.join(soverignDataDir, 'config.yaml');
 // Core project root (parent of soverign-desktop)
 const projectRoot = path.join(__dirname, '..');
 const coreDir = path.join(projectRoot, 'soverign-core');
+const daemonScript = path.join(coreDir, 'src', 'daemon', 'index.ts');
+
+// Windows Task Scheduler task names — these are the 24/7 background
+// processes. They are installed once via scripts/install-windows-tasks.ps1
+// and from then on run independently of this Electron app (survive app
+// close, survive logoff/restart if "Run whether user is logged on or not"
+// is configured, and auto-restart on crash). No Docker, no WSL, no cloud,
+// no internet required — pure native Windows Task Scheduler.
+const DAEMON_TASK = 'SoverignDaemon';
+const SIDECAR_TASK = 'SoverignSidecar';
 
 // Default config
 let config = {
   token: '',
-  autoStartDaemon: true,
-  autoStartSidecar: false, // sidecar is optional
   bunPath: 'bun' // override if bun is not in PATH
 };
 
@@ -72,9 +79,10 @@ function createWindow() {
 }
 
 function cleanupProcesses() {
-  stopSidecar();
+  // Only stop things that belong to THIS Electron process (the local log
+  // tail helper). The daemon and sidecar are owned by Windows Task
+  // Scheduler now, so they keep running 24/7 even after this window closes.
   stopLogTail();
-  // We do NOT auto-stop the daemon on app close (it keeps running in background)
 }
 
 // Check if Soverign Daemon port (3142) is active
@@ -168,7 +176,49 @@ function writeSoverignConfig(content) {
   }
 }
 
-// ─── IPC Handlers ────────────────────────────────────────────────────────────
+// ─── Windows Task Scheduler helpers ────────────────────────────────────────
+
+// Run a schtasks.exe command and capture output without throwing.
+function runSchtasks(args) {
+  return new Promise((resolve) => {
+    exec(`schtasks ${args}`, (err, stdout, stderr) => {
+      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '' });
+    });
+  });
+}
+
+async function isTaskRegistered(taskName) {
+  const { ok } = await runSchtasks(`/query /tn "${taskName}"`);
+  return ok;
+}
+
+async function getTaskStatus(taskName) {
+  const { ok, stdout } = await runSchtasks(`/query /tn "${taskName}" /fo list /v`);
+  if (!ok) return 'NotInstalled';
+  const match = stdout.match(/Status:\s*(.+)/i);
+  return match ? match[1].trim() : 'Unknown';
+}
+
+// Launch a .ps1 script elevated (UAC prompt) without fragile shell-quoting.
+// Returns once the elevated script has finished (-Wait).
+function runElevatedPowerShellScript(scriptPath, extraArgs = []) {
+  return new Promise((resolve) => {
+    const argList = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...extraArgs];
+    const argListLiteral = argList.map(a => `'${String(a).replace(/'/g, "''")}'`).join(',');
+    const innerCommand = `Start-Process -FilePath powershell -ArgumentList ${argListLiteral} -Verb RunAs -Wait`;
+
+    const proc = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', innerCommand], {
+      windowsHide: true
+    });
+
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('close', (code) => resolve({ success: code === 0, code, stderr }));
+    proc.on('error', (err) => resolve({ success: false, error: err.message }));
+  });
+}
+
+// ─── IPC Handlers: app config ──────────────────────────────────────────────
 
 ipcMain.handle('get-config', () => {
   return config;
@@ -180,24 +230,69 @@ ipcMain.handle('save-config', (event, newConfig) => {
   return { success: true };
 });
 
+// ─── IPC Handlers: 24/7 background service (install / uninstall) ──────────
+
+ipcMain.handle('check-service-installed', async () => {
+  const daemon = await isTaskRegistered(DAEMON_TASK);
+  const sidecar = await isTaskRegistered(SIDECAR_TASK);
+  // Return true if at minimum the daemon task is installed
+  return daemon;
+});
+
+ipcMain.handle('install-windows-service', async (event, includeSidecar) => {
+  if (!fs.existsSync(daemonScript)) {
+    return { success: false, error: `Daemon script not found: ${daemonScript}` };
+  }
+
+  const scriptPath = path.join(__dirname, 'scripts', 'install-windows-tasks.ps1');
+  if (!fs.existsSync(scriptPath)) {
+    return { success: false, error: 'scripts/install-windows-tasks.ps1 not found' };
+  }
+
+  sendLog('daemon', '[SYSTEM] Requesting admin rights to install the 24/7 background service...\n');
+  const extraArgs = includeSidecar ? ['-IncludeSidecar'] : [];
+  const result = await runElevatedPowerShellScript(scriptPath, extraArgs);
+
+  if (!result.success) {
+    sendLog('daemon', '[ERROR] Service install failed or the UAC prompt was cancelled.\n');
+    return { success: false, error: result.stderr || result.error || 'Install was cancelled' };
+  }
+
+  sendLog('daemon', '[SYSTEM] Soverign is now installed to run 24/7, even when this app is closed.\n');
+  startLogTail();
+  return { success: true };
+});
+
+ipcMain.handle('uninstall-windows-service', async () => {
+  const scriptPath = path.join(__dirname, 'scripts', 'uninstall-windows-tasks.ps1');
+  if (!fs.existsSync(scriptPath)) {
+    return { success: false, error: 'scripts/uninstall-windows-tasks.ps1 not found' };
+  }
+
+  sendLog('daemon', '[SYSTEM] Requesting admin rights to remove the 24/7 background service...\n');
+  const result = await runElevatedPowerShellScript(scriptPath);
+
+  if (!result.success) {
+    return { success: false, error: result.stderr || result.error || 'Uninstall was cancelled' };
+  }
+
+  sendLog('daemon', '[SYSTEM] 24/7 background service removed.\n');
+  return { success: true };
+});
+
+// ─── IPC Handlers: Daemon (now backed by the SoverignDaemon scheduled task)
+
 ipcMain.handle('check-daemon-status', async () => {
   const isRunning = await checkDaemonPort();
   return isRunning;
 });
 
-ipcMain.handle('start-daemon', async (event, options) => {
+ipcMain.handle('start-daemon', async () => {
   const isRunning = await checkDaemonPort();
   if (isRunning) {
     startLogTail();
     return { success: true, alreadyRunning: true };
   }
-
-  sendLog('daemon', '[SYSTEM] Starting Soverign Daemon (native Windows)...\n');
-  sendLog('daemon', `[SYSTEM] Core directory: ${coreDir}\n`);
-
-  // Check if bun is available
-  const bunCmd = config.bunPath || 'bun';
-  const daemonScript = path.join(coreDir, 'src', 'daemon', 'index.ts');
 
   if (!fs.existsSync(daemonScript)) {
     const msg = `[ERROR] Daemon script not found: ${daemonScript}\n`;
@@ -205,38 +300,16 @@ ipcMain.handle('start-daemon', async (event, options) => {
     return { success: false, error: msg };
   }
 
-  // Build environment - model selection
-  const env = { ...process.env };
-  env.SOVERIGN_DATA_DIR = soverignDataDir;
-
-  if (options && options.useQwen) {
-    // Use 1.5B — small enough for most PCs
-    env.SOVERIGN_DEFAULT_MODEL = 'ollama/qwen2.5:1.5b';
-    sendLog('daemon', '[SYSTEM] Model config: qwen2.5:1.5b via local Ollama\n');
-  }
-  if (options && options.autoCorrect) {
-    env.SOVERIGN_AUTO_CORRECT = 'true';
-    sendLog('daemon', '[SYSTEM] Auto-correction enabled\n');
+  const registered = await isTaskRegistered(DAEMON_TASK);
+  if (!registered) {
+    return {
+      success: false,
+      error: 'The 24/7 background service is not installed yet. Click "Install Background Service" first.'
+    };
   }
 
-  // Redirect stdout+stderr to log file
-  const logFd = fs.openSync(soverignLogFile, 'a');
-
-  daemonProcess = spawn(bunCmd, ['run', daemonScript], {
-    cwd: coreDir,
-    env,
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-    windowsHide: true
-  });
-  // FIX: Close parent's copy of FD immediately to avoid handle leak
-  fs.closeSync(logFd);
-  // FIX: Attach error handler before unref
-  daemonProcess.on('error', (err) => {
-    sendLog('daemon', `[ERROR] Daemon process failed to start: ${err.message}\n`);
-    daemonProcess = null;
-  });
-  daemonProcess.unref();
+  sendLog('daemon', '[SYSTEM] Starting Soverign Daemon (via Windows Task Scheduler)...\n');
+  await runSchtasks(`/run /tn "${DAEMON_TASK}"`);
 
   return new Promise((resolve) => {
     let attempts = 0;
@@ -258,36 +331,11 @@ ipcMain.handle('start-daemon', async (event, options) => {
   });
 });
 
-ipcMain.handle('stop-daemon', () => {
+ipcMain.handle('stop-daemon', async () => {
   sendLog('daemon', '[SYSTEM] Stopping Soverign Daemon...\n');
   stopLogTail();
-
-  return new Promise((resolve) => {
-    // Kill by port — find and kill the process using port 3142
-    exec('netstat -ano | findstr :3142', (err, stdout) => {
-      if (!stdout) {
-        sendLog('daemon', '[SYSTEM] No process found on port 3142.\n');
-        return resolve({ success: true });
-      }
-      const lines = stdout.split('\n');
-      const pids = new Set();
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 5) {
-          const pid = parts[4];
-          if (pid && pid !== '0') pids.add(pid);
-        }
-      }
-      let killed = 0;
-      for (const pid of pids) {
-        exec(`taskkill /pid ${pid} /T /F`, () => killed++);
-      }
-      setTimeout(() => {
-        sendLog('daemon', `[SYSTEM] Killed ${pids.size} process(es) on port 3142.\n`);
-        resolve({ success: true });
-      }, 500);
-    });
-  });
+  await runSchtasks(`/end /tn "${DAEMON_TASK}"`);
+  return { success: true };
 });
 
 // Pull a model via Ollama (native)
@@ -398,7 +446,6 @@ ipcMain.handle('scan-hardware', () => {
           recommended,
           recommendation,
         });
-        });
       }
     );
   });
@@ -431,8 +478,6 @@ ipcMain.handle('launch-claude-win', () => {
   spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', 'claude'], { shell: true });
   return { success: true };
 });
-
-
 
 // Save API/LLM config to Windows-native config.yaml
 ipcMain.handle('save-api-config', async (event, data) => {
@@ -540,65 +585,44 @@ ipcMain.handle('refresh-model-pool', async () => {
   }
 });
 
-// ─── Sidecar (native soverign-sidecar.cmd) ────────────────────────────────
+// ─── IPC Handlers: Sidecar (now backed by the SoverignSidecar scheduled task)
 
-function stopSidecar() {
-  if (sidecarProcess) {
-    sendLog('sidecar', '[SYSTEM] Stopping Soverign Sidecar...\n');
-    try {
-      exec(`taskkill /pid ${sidecarProcess.pid} /T /F`);
-    } catch (e) {}
-    sidecarProcess = null;
-    return true;
+ipcMain.handle('start-sidecar', async (event, token) => {
+  if (token) {
+    config.token = token;
+    saveConfig();
   }
-  return false;
-}
 
-ipcMain.handle('start-sidecar', (event, token) => {
-  if (sidecarProcess) stopSidecar();
+  const registered = await isTaskRegistered(SIDECAR_TASK);
+  if (!registered) {
+    return {
+      success: false,
+      error: 'The sidecar service is not installed. Re-run the installer with "Include Sidecar" checked.'
+    };
+  }
 
-  const tokenToUse = token || config.token;
-  sendLog('sidecar', '[SYSTEM] Launching Soverign Sidecar client...\n');
-
-  const args = tokenToUse ? ['--token', tokenToUse] : [];
-
-  // Try soverign-sidecar.cmd first, fall back to npx
-  sidecarProcess = spawn('soverign-sidecar.cmd', args, {
-    shell: true,
-    windowsHide: true
-  });
-
-  sidecarProcess.stdout.on('data', (data) => sendLog('sidecar', data));
-  sidecarProcess.stderr.on('data', (data) => sendLog('sidecar', data));
-  sidecarProcess.on('error', (err) => {
-    sendLog('sidecar', `[ERROR] Sidecar failed to start: ${err.message}\n`);
-    sendLog('sidecar', '[HINT] The sidecar requires Soverign to be installed globally. Contact support.\n');
-    sidecarProcess = null;
-    if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', false);
-  });
-  sidecarProcess.on('close', (code) => {
-    sendLog('sidecar', `[SYSTEM] Sidecar exited (code ${code})\n`);
-    sidecarProcess = null;
-    if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', false);
-  });
-
+  sendLog('sidecar', '[SYSTEM] Starting Soverign Sidecar (via Windows Task Scheduler)...\n');
+  await runSchtasks(`/run /tn "${SIDECAR_TASK}"`);
   if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', true);
   return { success: true };
 });
 
-ipcMain.handle('stop-sidecar', () => {
-  const stopped = stopSidecar();
+ipcMain.handle('stop-sidecar', async () => {
+  sendLog('sidecar', '[SYSTEM] Stopping Soverign Sidecar...\n');
+  await runSchtasks(`/end /tn "${SIDECAR_TASK}"`);
   if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', false);
-  return { success: stopped };
+  return { success: true };
 });
 
-ipcMain.handle('check-sidecar-status', () => {
-  return sidecarProcess !== null;
+ipcMain.handle('check-sidecar-status', async () => {
+  const status = await getTaskStatus(SIDECAR_TASK);
+  return status === 'Running';
 });
 
-// ─── Watchdog ─────────────────────────────────────────────────────────────────
-
-let watchdogProcess = null;
+// ─── Watchdog ───────────────────────────────────────────────────────────────
+// NOTE: now that Task Scheduler's own "restart on failure" handles crash
+// recovery for the daemon/sidecar, this custom watchdog is mostly a backup.
+// Left untouched / optional.
 
 ipcMain.handle('start-watchdog', () => {
   if (watchdogProcess) return { success: false, error: 'Watchdog already running' };
@@ -644,7 +668,67 @@ ipcMain.handle('health-check', async () => {
   return { status: isRunning ? 'running' : 'stopped', port: 3142 };
 });
 
-// ─── App lifecycle ────────────────────────────────────────────────────────────
+// ─── Focus Mode ─────────────────────────────────────────────────────────────
+// Uses PowerShell to lower/restore process priorities.
+// Excludes critical system and Soverign processes.
+// Returns the count of processes affected.
+
+const FOCUS_EXCLUDE = 'bun|soverign|ollama|electron|System|Idle|svchost|explorer|csrss|lsass|wininit|services|smss|winlogon|dwm|audiodg|fontdrvhost';
+
+ipcMain.handle('start-focus-mode', () => {
+  return new Promise((resolve) => {
+    sendLog('daemon', '[SYSTEM] Focus Mode ON — lowering priority of background processes...\n');
+    // Script: collect matching processes, set BelowNormal, output count as JSON
+    const ps = [
+      `$exclude = '${FOCUS_EXCLUDE}'`,
+      `$procs = Get-Process | Where-Object {`,
+      `  $_.PriorityClass -eq 'Normal' -and $_.ProcessName -notmatch $exclude`,
+      `}`,
+      `$count = 0`,
+      `foreach ($p in $procs) {`,
+      `  try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal; $count++ } catch {}`,
+      `}`,
+      `Write-Output $count`
+    ].join('; ');
+
+    exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { timeout: 10000 }, (err, stdout) => {
+      const loweredCount = parseInt((stdout || '0').trim(), 10) || 0;
+      if (err) {
+        sendLog('daemon', `[FOCUS] Warning: ${err.message}\n`);
+      }
+      sendLog('daemon', `[FOCUS] Lowered priority of ${loweredCount} background processes.\n`);
+      resolve({ success: true, loweredCount });
+    });
+  });
+});
+
+ipcMain.handle('stop-focus-mode', () => {
+  return new Promise((resolve) => {
+    sendLog('daemon', '[SYSTEM] Focus Mode OFF — restoring background process priorities...\n');
+    const ps = [
+      `$exclude = '${FOCUS_EXCLUDE}'`,
+      `$procs = Get-Process | Where-Object {`,
+      `  $_.PriorityClass -eq 'BelowNormal' -and $_.ProcessName -notmatch $exclude`,
+      `}`,
+      `$count = 0`,
+      `foreach ($p in $procs) {`,
+      `  try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal; $count++ } catch {}`,
+      `}`,
+      `Write-Output $count`
+    ].join('; ');
+
+    exec(`powershell -NoProfile -NonInteractive -Command "${ps}"`, { timeout: 10000 }, (err, stdout) => {
+      const restoredCount = parseInt((stdout || '0').trim(), 10) || 0;
+      if (err) {
+        sendLog('daemon', `[FOCUS] Warning: ${err.message}\n`);
+      }
+      sendLog('daemon', `[FOCUS] Restored priority of ${restoredCount} background processes.\n`);
+      resolve({ success: true, restoredCount });
+    });
+  });
+});
+
+// ─── App lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
   createWindow();

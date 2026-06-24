@@ -62,6 +62,16 @@ const btnSettings = document.getElementById('btn-settings');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const btnSaveSettings = document.getElementById('btn-save-settings');
 
+// Service management
+const btnInstallService = document.getElementById('btn-install-service');
+const btnUninstallService = document.getElementById('btn-uninstall-service');
+const serviceStatusText = document.getElementById('service-status');
+const chkInstallSidecar = document.getElementById('chk-install-sidecar');
+
+// Focus mode
+const btnStartFocus = document.getElementById('btn-start-focus');
+const btnStopFocus = document.getElementById('btn-stop-focus');
+
 const chkUseQwen = document.getElementById('chk-use-qwen');
 const chkAutoCorrect = document.getElementById('chk-auto-correct');
 
@@ -122,6 +132,7 @@ async function init() {
 
   // Initial status checks
   await checkSystemStatus();
+  if (typeof checkServiceStatus === 'function') await checkServiceStatus();
 
   // Run periodic status checks
   setInterval(checkSystemStatus, 3000);
@@ -193,10 +204,21 @@ function setupEventListeners() {
   });
 
   // Settings modals
-  btnSettings.addEventListener('click', () => settingsView.classList.remove('hidden'));
+  btnSettings.addEventListener('click', async () => {
+    settingsView.classList.remove('hidden');
+    if (typeof checkServiceStatus === 'function') await checkServiceStatus();
+  });
   btnCloseSettings.addEventListener('click', () => settingsView.classList.add('hidden'));
   btnSaveSettings.addEventListener('click', saveSettings);
   
+  // Service Installer controls
+  if (btnInstallService) btnInstallService.addEventListener('click', installService);
+  if (btnUninstallService) btnUninstallService.addEventListener('click', uninstallService);
+
+  // Focus Mode controls
+  if (btnStartFocus) btnStartFocus.addEventListener('click', startFocusMode);
+  if (btnStopFocus) btnStopFocus.addEventListener('click', stopFocusMode);
+
   // Close settings on background click
   settingsView.addEventListener('click', (e) => {
     if (e.target === settingsView) {
@@ -502,6 +524,105 @@ async function startAllServices() {
     } else {
       alert('Please enter a Sidecar Enrollment Token first to start the sidecar.');
     }
+  }
+}
+
+// --- Service Management Actions ---
+async function installService() {
+  if (!btnInstallService) return;
+  btnInstallService.disabled = true;
+  if (serviceStatusText) serviceStatusText.textContent = 'Installing service...';
+  const includeSidecar = chkInstallSidecar ? chkInstallSidecar.checked : false;
+  try {
+    const result = await window.api.installWindowsService(includeSidecar);
+    if (result.success) {
+      showToast('Background service installed successfully', 'success');
+    } else {
+      showToast(`Failed to install service: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+  } finally {
+    await checkServiceStatus();
+    btnInstallService.disabled = false;
+  }
+}
+
+async function uninstallService() {
+  if (!btnUninstallService) return;
+  btnUninstallService.disabled = true;
+  if (serviceStatusText) serviceStatusText.textContent = 'Uninstalling service...';
+  try {
+    const result = await window.api.uninstallWindowsService();
+    if (result.success) {
+      showToast('Background service uninstalled successfully', 'success');
+    } else {
+      showToast(`Failed to uninstall service: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+  } finally {
+    await checkServiceStatus();
+    btnUninstallService.disabled = false;
+  }
+}
+
+async function checkServiceStatus() {
+  if (!serviceStatusText) return;
+  try {
+    const isInstalled = await window.api.checkServiceInstalled();
+    if (isInstalled) {
+      serviceStatusText.textContent = 'Status: Service is installed and running.';
+      serviceStatusText.style.color = '#00e676';
+      if (btnInstallService) btnInstallService.style.display = 'none';
+      if (btnUninstallService) btnUninstallService.style.display = 'block';
+    } else {
+      serviceStatusText.textContent = 'Status: Service is not installed.';
+      serviceStatusText.style.color = 'var(--text-muted)';
+      if (btnInstallService) btnInstallService.style.display = 'block';
+      if (btnUninstallService) btnUninstallService.style.display = 'none';
+    }
+  } catch (err) {
+    serviceStatusText.textContent = 'Status: Unknown';
+  }
+}
+
+// --- Focus Mode Actions ---
+async function startFocusMode() {
+  if (!btnStartFocus) return;
+  btnStartFocus.disabled = true;
+  try {
+    const result = await window.api.startFocusMode();
+    if (result.success) {
+      showToast(`Focus Mode enabled. Lowered priority of ${result.loweredCount} processes.`, 'success');
+      btnStartFocus.style.display = 'none';
+      if (btnStopFocus) btnStopFocus.style.display = 'block';
+    } else {
+      showToast(`Failed to start Focus Mode: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+  } finally {
+    btnStartFocus.disabled = false;
+  }
+}
+
+async function stopFocusMode() {
+  if (!btnStopFocus) return;
+  btnStopFocus.disabled = true;
+  try {
+    const result = await window.api.stopFocusMode();
+    if (result.success) {
+      showToast(`Focus Mode disabled. Restored priority of ${result.restoredCount} processes.`, 'success');
+      if (btnStartFocus) btnStartFocus.style.display = 'block';
+      btnStopFocus.style.display = 'none';
+    } else {
+      showToast(`Failed to stop Focus Mode: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+  } finally {
+    btnStopFocus.disabled = false;
   }
 }
 

@@ -1,6 +1,7 @@
 {
   "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFHUFgzWmVHLXA2Y0lLMlc4bEJsQlpxazVQYWNMWjFidzJQRU43RVd4aXcifQ.eyJzaWQiOiIxYjA0Nzg4YS05MThlLTRkZmEtODc1Ny1jOGM0ZDQxNGZjYzMiLCJuYW1lIjoiSmFydmlzIiwiYnJhaW4iOiJ3czovL2xvY2FsaG9zdDozMTQyL3NpZGVjYXIvY29ubmVjdCIsImp3a3MiOiJodHRwOi8vbG9jYWxob3N0OjMxNDIvYXBpL3NpZGVjYXJzLy53ZWxsLWtub3duL2p3a3MuanNvbiIsInN1YiI6InNpZGVjYXI6MWIwNDc4OGEtOTE4ZS00ZGZhLTg3NTctYzhjNGQ0MTRmY2MzIiwianRpIjoiNGQ4MjU5MTktMTY5Zi00MzU0LTk0NjEtYTk0ZWI5NDY2ZWM1IiwiaWF0IjoxNzgxOTU2NTQ4fQ.l6R0_1dNDjurZMij4F7t6q0f_fnRd5pvGou4QGRQVQPFx8-eIghXPYpzLHMCIxj_dzF4GW0bCo51C0Sx86VUsA",
-  "wslDistro": "Ubuntu",
   "autoStartDaemon": true,
-  "autoStartSidecar": true
+  "autoStartSidecar": true,
+  "bunPath": "bun",
+  "wslDistro": "Ubuntu"
 }
