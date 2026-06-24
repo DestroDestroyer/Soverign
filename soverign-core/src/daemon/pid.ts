@@ -80,10 +80,10 @@ export function acquireLock(pid: number): boolean {
       if (runningPid) {
         return false;
       }
-      const fd = openSync(LOCK_PATH, 'w');
+      const fd = openSync(LOCK_PATH, constants.O_RDWR | constants.O_CREAT, 0o644);
+      ftruncateSync(fd, 0);
       writeSync(fd, String(pid));
-      closeSync(fd);
-      lockFd = 999; // dummy fd
+      lockFd = fd;
       return true;
     } catch (err) {
       console.error(`[PID] Failed to acquire lock: ${err}`);

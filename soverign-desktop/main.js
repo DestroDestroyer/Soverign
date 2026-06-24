@@ -464,14 +464,14 @@ ipcMain.handle('save-api-config', async (event, data) => {
     providerDetails = `    openrouter:\n      api_key: "${apiKey}"`;
   }
 
-  const newLlmBlock = `  llm:\n    default: "${defaultModel}"\n    providers:\n${providerDetails}\n    tiers: {}\n`;
+  const newLlmBlock = `llm:\n  default: "${defaultModel}"\n  providers:\n${providerDetails}\n  tiers: {}\n`;
 
   let updatedYaml;
-  if (currentYaml.includes('  llm:')) {
-    updatedYaml = currentYaml.replace(/  llm:[\s\S]*?(?=  \w+:|$)/, newLlmBlock);
+  if (/^([ \t]*)llm:/m.test(currentYaml)) {
+    updatedYaml = currentYaml.replace(/^([ \t]*)llm:[\s\S]*?(?=^[ \t]*\w+:|$)/m, newLlmBlock);
   } else {
     // Append if no llm block
-    updatedYaml = currentYaml + '\n' + newLlmBlock;
+    updatedYaml = currentYaml.trim() + '\n\n' + newLlmBlock;
   }
 
   const ok = writeSoverignConfig(updatedYaml);

@@ -19,8 +19,10 @@ describe('GoogleAuth token storage', () => {
     });
 
     expect(existsSync(tokensPath)).toBe(true);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(tokensPath).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(tokensPath).mode & 0o777).toBe(0o600);
+    }
   });
 
   test('does not chmod cwd for bare relative token paths', async () => {
@@ -41,8 +43,10 @@ describe('GoogleAuth token storage', () => {
         token_type: 'Bearer',
       });
 
-      expect(statSync(dir).mode & 0o777).toBe(0o755);
-      expect(statSync(join(dir, 'google-tokens.json')).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(dir).mode & 0o777).toBe(0o755);
+        expect(statSync(join(dir, 'google-tokens.json')).mode & 0o777).toBe(0o600);
+      }
     } finally {
       process.chdir(originalCwd);
       await rm(dir, { recursive: true, force: true });

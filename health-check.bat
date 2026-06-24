@@ -93,7 +93,7 @@ if exist "%USERPROFILE%\.soverign\config.yaml" (
 
 :: Check 8: soverign-core exists
 echo [CHECK] soverign-core...
-if exist "%~dp0soverign-core\src\index.ts" (
+if exist "%~dp0soverign-core\src\daemon\index.ts" (
   echo   PASS: soverign-core source found
   set /a PASS+=1
 ) else (

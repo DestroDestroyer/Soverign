@@ -8,20 +8,23 @@ if (Test-Path $OldDesktopPath) {
     Write-Host "Removed old J.A.R.V.I.S. shortcut." -ForegroundColor Yellow
 }
 
-$ProjectDir = "D:\Soverign\soverign-desktop"
+$ProjectDir = $PSScriptRoot
+$WorkspaceRoot = (Get-Item $PSScriptRoot).Parent.FullName
 $ElectronPath = "$ProjectDir\node_modules\electron\dist\electron.exe"
+$BatPath = "$WorkspaceRoot\run_soverign.bat"
 
-if (-not (Test-Path $ElectronPath)) {
-    Write-Host "Error: Electron executable not found at $ElectronPath. Please ensure npm install has completed successfully." -ForegroundColor Red
+if (-not (Test-Path $BatPath)) {
+    Write-Host "Error: run_soverign.bat not found at $BatPath. Please run from the project structure." -ForegroundColor Red
     exit 1
 }
 
 $Shortcut = $WshShell.CreateShortcut($DesktopPath)
-$Shortcut.TargetPath = $ElectronPath
-$Shortcut.Arguments = "`"$ProjectDir`""
-$Shortcut.WorkingDirectory = $ProjectDir
-$Shortcut.Description = "Launch Soverign Desktop Console"
-$Shortcut.IconLocation = "$ElectronPath,0"
+$Shortcut.TargetPath = $BatPath
+$Shortcut.WorkingDirectory = $WorkspaceRoot
+$Shortcut.Description = "Launch Soverign AI Console & Daemon"
+if (Test-Path $ElectronPath) {
+    $Shortcut.IconLocation = "$ElectronPath,0"
+}
 $Shortcut.Save()
 
-Write-Host "Successfully created Soverign Desktop shortcut at $DesktopPath" -ForegroundColor Green
+Write-Host "Successfully created Soverign Desktop shortcut targeting run_soverign.bat at $DesktopPath" -ForegroundColor Green

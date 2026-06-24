@@ -39,7 +39,7 @@ for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":3142.*LISTENING"') d
   set DAEMON_RUNNING=1
 )
 if !DAEMON_RUNNING!==1 (
-  echo [INFO] Daemon already running (PID: !DAEMON_PID!). Skipping launch.
+  echo [INFO] Daemon already running with PID !DAEMON_PID!. Skipping launch.
   goto :launch_electron
 )
 
@@ -67,7 +67,7 @@ set /a ATTEMPTS=0
 :wait_loop
   powershell -NoProfile -Command "$t=New-Object System.Net.Sockets.TcpClient;try{$t.Connect('127.0.0.1',3142);$t.Close();exit 0}catch{exit 1}" >nul 2>&1
   if %errorlevel%==0 goto :daemon_ready
-  timeout /t 1 /nobreak >nul
+  ping -n 2 127.0.0.1 >nul
   set /a ATTEMPTS+=1
   if !ATTEMPTS! geq 30 (
     echo [ERROR] Daemon did not start after 30 seconds.

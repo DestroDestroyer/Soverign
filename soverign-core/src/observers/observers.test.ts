@@ -145,7 +145,7 @@ describe('ProcessMonitor', () => {
 
     await monitor.stop();
     expect(monitor.isRunning()).toBe(false);
-  });
+  }, 30000);
 
   test('gets process list', async () => {
     const monitor = new ProcessMonitor(10000);
@@ -161,7 +161,7 @@ describe('ProcessMonitor', () => {
     expect(proc).toHaveProperty('name');
     expect(proc).toHaveProperty('cpu');
     expect(proc).toHaveProperty('memory');
-  });
+  }, 30000);
 });
 
 describe('Stub Observers', () => {

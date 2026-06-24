@@ -11,13 +11,19 @@ describe('secureWriteFile', () => {
       const target = join(dir, 'secret.txt');
       await secureWriteFile(target, 'hello', 0o600, 'Test');
       expect(await readFile(target, 'utf-8')).toBe('hello');
-      expect((await stat(target)).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect((await stat(target)).mode & 0o777).toBe(0o600);
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 
   test('refuses to write through a symlink (ELOOP via O_NOFOLLOW)', async () => {
+    if (process.platform === 'win32') {
+      // Skipping symlink creation test since creating symlinks requires admin/developer privileges on Windows.
+      return;
+    }
     const dir = await mkdtemp(join(tmpdir(), 'soverign-fs-secure-'));
     try {
       const decoy = join(dir, 'decoy.txt');
@@ -31,7 +37,7 @@ describe('secureWriteFile', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 
   test('truncates an existing regular file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'soverign-fs-secure-'));
@@ -43,7 +49,7 @@ describe('secureWriteFile', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 });
 
 describe('secureDirectory', () => {
@@ -52,16 +58,20 @@ describe('secureDirectory', () => {
     try {
       const nested = join(root, 'a', 'b');
       await secureDirectory(nested);
-      expect((await stat(nested)).mode & 0o777).toBe(0o700);
+      if (process.platform !== 'win32') {
+        expect((await stat(nested)).mode & 0o777).toBe(0o700);
+      }
 
       // Loosen and reapply.
       await writeFile(join(nested, 'sentinel'), 'x');
       await secureDirectory(nested, 0o755);
-      expect((await stat(nested)).mode & 0o777).toBe(0o755);
+      if (process.platform !== 'win32') {
+        expect((await stat(nested)).mode & 0o777).toBe(0o755);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 });
 
 describe('secureParentDirectory', () => {

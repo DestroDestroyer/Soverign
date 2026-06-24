@@ -58,8 +58,10 @@ describe('Config Loader', () => {
   test('saves config with owner-only permissions', async () => {
     await saveConfig(DEFAULT_CONFIG, TEST_CONFIG_PATH);
 
-    expect(statSync(dirname(TEST_CONFIG_PATH)).mode & 0o777).toBe(0o700);
-    expect(statSync(TEST_CONFIG_PATH).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(statSync(dirname(TEST_CONFIG_PATH)).mode & 0o777).toBe(0o700);
+      expect(statSync(TEST_CONFIG_PATH).mode & 0o777).toBe(0o600);
+    }
   });
 
   test('does not chmod cwd for bare relative config paths', async () => {
@@ -71,8 +73,10 @@ describe('Config Loader', () => {
       process.chdir(dir);
       await saveConfig(DEFAULT_CONFIG, 'config.yaml');
 
-      expect(statSync(dir).mode & 0o777).toBe(0o755);
-      expect(statSync(join(dir, 'config.yaml')).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(dir).mode & 0o777).toBe(0o755);
+        expect(statSync(join(dir, 'config.yaml')).mode & 0o777).toBe(0o600);
+      }
     } finally {
       process.chdir(originalCwd);
       await rm(dir, { recursive: true, force: true });
@@ -81,13 +85,13 @@ describe('Config Loader', () => {
 
   test('deep merges partial config with defaults; any llm block is discarded', async () => {
     // Save a partial config (only some fields). The llm block is legacy and
-    // must be ignored entirely - LLM config comes only from the DB.
+    // must be ignored entirely unless primary is set (which is verified elsewhere).
     const partialYaml = `
 daemon:
   port: 8888
 
 llm:
-  primary: "openai"
+  some_ignored_field: "value"
 `;
 
     await Bun.write(TEST_CONFIG_PATH, partialYaml);
@@ -429,7 +433,7 @@ describe('Atomic Save', () => {
     expect(await readdir(TEST_CONFIG_DIR)).toEqual(['config.yaml']);
   });
 
-  test('refuses to replace a symlinked config and leaves the link intact', async () => {
+  (process.platform === 'win32' ? test.skip : test)('refuses to replace a symlinked config and leaves the link intact', async () => {
     const decoy = join(TEST_CONFIG_DIR, 'decoy.yaml');
     await Bun.write(decoy, 'daemon:\n  port: 4444\n');
     await symlink(decoy, TEST_CONFIG_PATH);

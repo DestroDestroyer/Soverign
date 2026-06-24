@@ -1,7 +1,7 @@
 $Version = "31.7.7"
 $Url = "https://github.com/electron/electron/releases/download/v$Version/electron-v$Version-win32-x64.zip"
-$ZipPath = "D:\Soverign\jarvis-desktop\electron.zip"
-$DestPath = "D:\Soverign\jarvis-desktop\node_modules\electron\dist"
+$ZipPath = Join-Path $PSScriptRoot "electron.zip"
+$DestPath = Join-Path $PSScriptRoot "node_modules\electron\dist"
 
 Write-Host "Creating dist directory if missing..." -ForegroundColor Cyan
 if (-not (Test-Path $DestPath)) {
@@ -22,7 +22,7 @@ Write-Host "Extracting to $DestPath..." -ForegroundColor Cyan
 Expand-Archive -Path $ZipPath -DestinationPath $DestPath -Force
 
 Write-Host "Writing path.txt..." -ForegroundColor Cyan
-"electron.exe" | Out-File -FilePath "D:\Soverign\jarvis-desktop\node_modules\electron\path.txt" -Encoding ascii -NoNewline
+"electron.exe" | Out-File -FilePath (Join-Path $PSScriptRoot "node_modules\electron\path.txt") -Encoding ascii -NoNewline
 # Also write version file in dist just in case
 "v$Version" | Out-File -FilePath "$DestPath\version" -Encoding ascii -NoNewline
 

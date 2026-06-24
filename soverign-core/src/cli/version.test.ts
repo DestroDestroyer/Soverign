@@ -7,6 +7,15 @@ import { getInstalledVersion, selectInstalledVersion } from './version.ts';
 
 const TEMP_DIRS: string[] = [];
 
+function translateBashToJs(bash: string): string {
+  return bash
+    .replace(/if\s+\[\s+"\$3"\s+=\s+"([^"]+)"\s+\]\s+&&\s+\[\s+"\$4"\s+=\s+"([^"]+)"\s+\]\s+&&\s+\[\s+"\$5"\s+=\s+"([^"]+)"\s+\];\s*then/g,
+      'if (process.argv[4] === "$1" && process.argv[5] === "$2" && process.argv[6] === "$3") {')
+    .replace(/printf\s+'([^']+)(?:\\\\n|\\n)'/g, "console.log('$1')")
+    .replace(/exit\s+(\d+)/g, 'process.exit($1)')
+    .replace(/fi/g, '}');
+}
+
 function makeTempDir(name: string): string {
   const dir = mkdtempSync(join(tmpdir(), `soverign-version-test-${name}-`));
   const resolved = resolve(dir);
@@ -21,27 +30,32 @@ async function writePackageJson(dir: string, version: string): Promise<void> {
   await Bun.write(join(dir, 'package.json'), JSON.stringify({ name: '@usesoverign/brain', version }, null, 2));
 }
 
-async function writeFakeGit(dir: string, script: string): Promise<void> {
+async function writeFakeGit(dir: string, describeBranch: string): Promise<void> {
   const binDir = join(dir, 'bin');
   mkdirSync(binDir, { recursive: true });
-  const gitPath = join(binDir, 'git');
-  await Bun.write(gitPath, script);
-  chmodSync(gitPath, 0o755);
-}
 
-// Builds a fake-git script that always succeeds for `rev-parse --git-dir`
-// (so isGitCheckout returns true) and lets the caller specify how the
-// `describe` invocations should behave. Note: $1=-C, $2=cwd, $3=subcommand,
-// $4..=flags.
-function fakeGitScript(describeBranch: string): string {
-  return `#!/usr/bin/env bash
-if [ "$3" = "rev-parse" ] && [ "$4" = "--git-dir" ]; then
-  printf '.git\\n'
-  exit 0
-fi
-${describeBranch}
-exit 1
+  const isWin = process.platform === 'win32';
+  const jsScript = `#!/usr/bin/env node
+const args = process.argv;
+if (args[4] === 'rev-parse' && args[5] === '--git-dir') {
+  process.stdout.write('.git\\n');
+  process.exit(0);
+}
+${translateBashToJs(describeBranch)}
+process.exit(1);
 `;
+
+  await Bun.write(join(binDir, 'git.js'), jsScript);
+
+  if (isWin) {
+    const cmdContent = `@echo off\r\nnode "%~dp0git.js" %*\r\n`;
+    await Bun.write(join(binDir, 'git.cmd'), cmdContent);
+  } else {
+    const shContent = `#!/bin/sh\nnode "$(dirname "$0")/git.js" "$@"\n`;
+    const gitPath = join(binDir, 'git');
+    await Bun.write(gitPath, shContent);
+    chmodSync(gitPath, 0o755);
+  }
 }
 
 async function withFakeGit<T>(
@@ -51,10 +65,11 @@ async function withFakeGit<T>(
 ): Promise<T> {
   const dir = makeTempDir(name);
   await writePackageJson(dir, '0.4.0');
-  await writeFakeGit(dir, fakeGitScript(describeBranch));
+  await writeFakeGit(dir, describeBranch);
 
   const previousGitBin = process.env.SOVERIGN_GIT_BIN;
-  process.env.SOVERIGN_GIT_BIN = join(dir, 'bin', 'git');
+  const gitExtension = process.platform === 'win32' ? '.cmd' : '';
+  process.env.SOVERIGN_GIT_BIN = join(dir, 'bin', `git${gitExtension}`);
   try {
     return await run(dir);
   } finally {

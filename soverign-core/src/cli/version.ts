@@ -21,6 +21,7 @@ function runGit(args: string[], cwd: string): string | null {
     result = spawnSync([gitBin, '-C', cwd, ...args], {
       stdout: 'pipe',
       stderr: 'pipe',
+      shell: process.platform === 'win32',
     });
   } catch {
     // git binary missing or unspawnable — treat as "no git here".

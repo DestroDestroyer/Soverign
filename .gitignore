@@ -13,3 +13,16 @@ drive_token.json
 .secrets.enc
 jarvis-core/node_modules/
 jarvis-desktop/node_modules/
+
+# Legacy video/novel generation scripts
+colab_launcher.py
+colab_pipeline.py
+generate_demonic_rebirth.py
+generate_full_novel.py
+rebuild_video_locally.py
+run_kaggle.py
+story_expander.py
+videoforge.py
+videoforge_elite.py
+videoforge_novel_edition.py
+

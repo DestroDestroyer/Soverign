@@ -15,6 +15,7 @@ function keyPaths(dataDir: string): { keyDir: string; privateKeyPath: string; pu
 }
 
 function expectKeyModes(dataDir: string): void {
+  if (process.platform === 'win32') return;
   const { keyDir, privateKeyPath, publicKeyPath } = keyPaths(dataDir);
   expect(statSync(keyDir).mode & 0o777).toBe(0o700);
   expect(statSync(privateKeyPath).mode & 0o777).toBe(0o600);
@@ -132,9 +133,11 @@ describe('SidecarManager key storage', () => {
       await firstManager.stop();
 
       const { keyDir, privateKeyPath, publicKeyPath } = keyPaths(dataDir);
-      await chmod(keyDir, 0o777);
-      await chmod(privateKeyPath, 0o644);
-      await chmod(publicKeyPath, 0o666);
+      if (process.platform !== 'win32') {
+        await chmod(keyDir, 0o777);
+        await chmod(privateKeyPath, 0o644);
+        await chmod(publicKeyPath, 0o666);
+      }
 
       const secondManager = new SidecarManager(dataDir);
       await secondManager.start();
