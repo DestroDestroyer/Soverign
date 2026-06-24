@@ -27,10 +27,6 @@ const daemonStatusText = document.getElementById('daemon-status-text');
 const btnStartDaemon = document.getElementById('btn-start-daemon');
 const btnStopDaemon = document.getElementById('btn-stop-daemon');
 
-const sidecarStatusDot = document.getElementById('sidecar-status-dot');
-const sidecarStatusText = document.getElementById('sidecar-status-text');
-const btnStartSidecar = document.getElementById('btn-start-sidecar');
-const btnStopSidecar = document.getElementById('btn-stop-sidecar');
 
 // New Model & API Elements
 const selModelProvider = document.getElementById('sel-model-provider');
@@ -66,7 +62,6 @@ const btnSaveSettings = document.getElementById('btn-save-settings');
 const btnInstallService = document.getElementById('btn-install-service');
 const btnUninstallService = document.getElementById('btn-uninstall-service');
 const serviceStatusText = document.getElementById('service-status');
-const chkInstallSidecar = document.getElementById('chk-install-sidecar');
 
 // Focus mode
 const btnStartFocus = document.getElementById('btn-start-focus');
@@ -85,17 +80,14 @@ const soverignWebview = document.getElementById('soverign-webview');
 
 const bunPathInput = document.getElementById('bun-path-input');
 const chkAutoDaemon = document.getElementById('chk-auto-daemon');
-const chkAutoSidecar = document.getElementById('chk-auto-sidecar');
 
 const daemonTerminal = document.getElementById('daemon-terminal');
-const sidecarTerminal = document.getElementById('sidecar-terminal');
 const drawerTabs = document.querySelectorAll('.drawer-tab');
 const tabContents = document.querySelectorAll('.tab-content');
 
 // App state variables
 let appConfig = null;
 let daemonRunning = false;
-let sidecarRunning = false;
 let activeTab = 'daemon-logs';
 let webviewLoaded = false;
 let statusCheckInProgress = false; // prevent overlapping 3s polls
@@ -108,7 +100,6 @@ async function init() {
   // Populate UI
   bunPathInput.value = appConfig.bunPath || 'bun';
   chkAutoDaemon.checked = appConfig.autoStartDaemon !== false;
-  chkAutoSidecar.checked = appConfig.autoStartSidecar !== false;
 
   // Populate API configuration
   const apiConfig = await window.api.getApiConfig();
@@ -125,10 +116,6 @@ async function init() {
     appendLog(source, text);
   });
 
-  // Register Sidecar Status Event
-  window.api.onSidecarStatus((status) => {
-    updateSidecarUI(status);
-  });
 
   // Initial status checks
   await checkSystemStatus();
@@ -141,10 +128,6 @@ async function init() {
   if (appConfig.autoStartDaemon !== false && !daemonRunning) {
     bootDaemon();
   }
-  // Only auto-start sidecar if a token is already configured (avoids alert on launch)
-  if (appConfig.autoStartSidecar !== false && !sidecarRunning && appConfig.token) {
-    startSidecar();
-  }
 }
 
 function setupEventListeners() {
@@ -153,9 +136,6 @@ function setupEventListeners() {
   btnBootSystem.addEventListener('click', bootDaemon);
   btnStopDaemon.addEventListener('click', stopDaemon);
 
-  // Sidecar controls
-  btnStartSidecar.addEventListener('click', startSidecar);
-  btnStopSidecar.addEventListener('click', stopSidecar);
 
   // API Config settings
   selModelProvider.addEventListener('change', updateProviderFields);
@@ -351,9 +331,6 @@ async function checkSystemStatus() {
     const daemonStatus = await window.api.checkDaemonStatus();
     updateDaemonUI(daemonStatus);
 
-    // 2. Sidecar check
-    const sidecarStatus = await window.api.checkSidecarStatus();
-    updateSidecarUI(sidecarStatus);
   } finally {
     statusCheckInProgress = false;
   }
@@ -401,14 +378,7 @@ function updateSidecarUI(isRunning) {
     sidecarStatusDot.className = 'status-indicator running';
     sidecarStatusText.textContent = 'Running';
     btnStartSidecar.disabled = true;
-    btnStopSidecar.disabled = false;
-  } else {
-    sidecarStatusDot.className = 'status-indicator stopped';
-    sidecarStatusText.textContent = 'Stopped';
-    btnStartSidecar.disabled = false;
-    btnStopSidecar.disabled = true;
-  }
-}
+
 
 // Daemon Actions
 async function bootDaemon() {
@@ -493,43 +463,11 @@ async function stopDaemon() {
   }
 }
 
-// Sidecar Actions
-async function startSidecar() {
-  if (!appConfig.token) {
-    alert('Please enter and save a Sidecar Enrollment Token first!');
-    return;
-  }
-  
-  sidecarStatusDot.className = 'status-indicator pending';
-  sidecarStatusText.textContent = 'Starting...';
-  btnStartSidecar.disabled = true;
 
-  // Open drawer and switch to Sidecar logs
-  logsDrawer.classList.remove('collapsed');
-  document.querySelector('[data-tab="sidecar-logs"]').click();
-
-  const result = await window.api.startSidecar(appConfig.token);
-  if (!result.success) {
-    alert(`Failed to start sidecar: ${result.error}`);
-    await checkSystemStatus();
-  }
-}
-
-async function stopSidecar() {
-  await window.api.stopSidecar();
-  await checkSystemStatus();
-}
 
 async function startAllServices() {
   if (!daemonRunning) {
     await bootDaemon();
-  }
-  if (!sidecarRunning) {
-    if (appConfig.token) {
-      await startSidecar();
-    } else {
-      alert('Please enter a Sidecar Enrollment Token first to start the sidecar.');
-    }
   }
 }
 
@@ -539,10 +477,9 @@ async function installService() {
   btnInstallService.disabled = true;
   if (serviceStatusText) serviceStatusText.textContent = 'Installing services... (approve the UAC prompt)';
   try {
-    // Always installs both daemon + sidecar in one UAC prompt
     const result = await window.api.installWindowsService();
     if (result.success) {
-      showToast('✅ Both services installed and running 24/7!', 'success');
+      showToast('✅ Background service installed and running 24/7!', 'success');
     } else {
       showToast(`Failed: ${result.error}`, 'error');
     }
@@ -577,25 +514,17 @@ async function checkServiceStatus() {
   if (!serviceStatusText) return;
   try {
     const status = await window.api.checkServiceInstalled();
-    // status is now { daemon, sidecar, both }
     const daemonOk  = status?.daemon  ?? status === true;
-    const sidecarOk = status?.sidecar ?? false;
 
-    if (daemonOk && sidecarOk) {
-      serviceStatusText.textContent = '✅ Both services installed & running 24/7';
+    if (daemonOk) {
+      serviceStatusText.textContent = '✅ Service installed & running 24/7';
       serviceStatusText.style.color = '#00e676';
       if (btnInstallService)   btnInstallService.style.display   = 'none';
       if (btnUninstallService) btnUninstallService.style.display = 'block';
-    } else if (daemonOk) {
-      serviceStatusText.textContent = '⚠️ Daemon installed (sidecar missing — reinstall to add)';
-      serviceStatusText.style.color = '#ffd740';
-      if (btnInstallService)   btnInstallService.style.display   = 'block';
-      if (btnUninstallService) btnUninstallService.style.display = 'block';
-      if (btnInstallService) btnInstallService.textContent = '🔧 Reinstall (add sidecar)';
     } else {
-      serviceStatusText.textContent = '❌ Services not installed';
+      serviceStatusText.textContent = '❌ Service not installed';
       serviceStatusText.style.color = 'var(--text-muted)';
-      if (btnInstallService)   { btnInstallService.style.display = 'block'; btnInstallService.textContent = '⚡ Install 24/7 Services'; }
+      if (btnInstallService)   { btnInstallService.style.display = 'block'; btnInstallService.textContent = '⚡ Install 24/7 Service'; }
       if (btnUninstallService) btnUninstallService.style.display = 'none';
     }
   } catch (err) {
@@ -653,7 +582,6 @@ async function saveToken() {
 async function saveSettings() {
   const bunPath = bunPathInput.value.trim();
   const autoStartDaemon = chkAutoDaemon.checked;
-  const autoStartSidecar = chkAutoSidecar.checked;
 
   if (!bunPath) {
     alert('Bun path cannot be empty!');
@@ -662,12 +590,10 @@ async function saveSettings() {
 
   appConfig.bunPath = bunPath;
   appConfig.autoStartDaemon = autoStartDaemon;
-  appConfig.autoStartSidecar = autoStartSidecar;
 
   await window.api.saveConfig({
     bunPath,
-    autoStartDaemon,
-    autoStartSidecar
+    autoStartDaemon
   });
 
   appendLog('daemon', `[SYSTEM] Saved advanced configuration. Bun Path: ${bunPath}\n`);
@@ -682,13 +608,11 @@ function toggleLogsDrawer() {
 function clearActiveTerminal() {
   if (activeTab === 'daemon-logs') {
     daemonTerminal.textContent = '';
-  } else {
-    sidecarTerminal.textContent = '';
   }
 }
 
 function appendLog(source, text) {
-  const terminal = source === 'daemon' ? daemonTerminal : sidecarTerminal;
+  const terminal = daemonTerminal;
   if (!terminal) return;
 
   // Clean raw control chars if any

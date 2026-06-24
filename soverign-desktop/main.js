@@ -19,7 +19,6 @@ const soverignConfigYaml = path.join(soverignDataDir, 'config.yaml');
 const projectRoot = path.join(__dirname, '..');
 const coreDir = path.join(projectRoot, 'soverign-core');
 const daemonScript  = path.join(coreDir, 'src', 'daemon',  'index.ts');
-const sidecarScript = path.join(coreDir, 'src', 'sidecar', 'index.ts');
 
 // Windows Task Scheduler task names — these are the 24/7 background
 // processes. They are installed once via scripts/install-windows-tasks.ps1
@@ -27,8 +26,7 @@ const sidecarScript = path.join(coreDir, 'src', 'sidecar', 'index.ts');
 // close, survive logoff/restart if "Run whether user is logged on or not"
 // is configured, and auto-restart on crash). No Docker, no WSL, no cloud,
 // no internet required — pure native Windows Task Scheduler.
-const DAEMON_TASK = 'SoverignDaemon';
-const SIDECAR_TASK = 'SoverignSidecar';
+const DAEMON_TASK = 'SoverignService';
 
 // Default config
 let config = {
@@ -81,8 +79,8 @@ function createWindow() {
 
 function cleanupProcesses() {
   // Only stop things that belong to THIS Electron process (the local log
-  // tail helper). The daemon and sidecar are owned by Windows Task
-  // Scheduler now, so they keep running 24/7 even after this window closes.
+  // tail helper). The daemon is owned by Windows Task
+  // Scheduler now, so it keeps running 24/7 even after this window closes.
   stopLogTail();
 }
 
@@ -235,8 +233,7 @@ ipcMain.handle('save-config', (event, newConfig) => {
 
 ipcMain.handle('check-service-installed', async () => {
   const daemon  = await isTaskRegistered(DAEMON_TASK);
-  const sidecar = await isTaskRegistered(SIDECAR_TASK);
-  return { daemon, sidecar, both: daemon && sidecar };
+  return { daemon, both: daemon };
 });
 
 ipcMain.handle('install-windows-service', async () => {
@@ -249,8 +246,7 @@ ipcMain.handle('install-windows-service', async () => {
     return { success: false, error: 'scripts/install-windows-tasks.ps1 not found' };
   }
 
-  sendLog('daemon', '[SYSTEM] Requesting admin rights to install both 24/7 background services...\n');
-  // Always install both daemon + sidecar in one UAC prompt
+  sendLog('daemon', '[SYSTEM] Requesting admin rights to install the 24/7 background service...\n');
   const result = await runElevatedPowerShellScript(scriptPath, []);
 
   if (!result.success) {
@@ -258,7 +254,7 @@ ipcMain.handle('install-windows-service', async () => {
     return { success: false, error: result.stderr || result.error || 'Install was cancelled' };
   }
 
-  sendLog('daemon', '[SYSTEM] Both services are now installed and running 24/7.\n');
+  sendLog('daemon', '[SYSTEM] The service is now installed and running 24/7.\n');
   startLogTail();
   return { success: true };
 });
@@ -522,7 +518,7 @@ ipcMain.handle('get-gpu-vram', () => {
 
 // Launch Claude Code (Windows native)
 ipcMain.handle('launch-claude-win', () => {
-  sendLog('sidecar', '[SYSTEM] Launching Claude Code (Windows)...\n');
+  sendLog('daemon', '[SYSTEM] Launching Claude Code (Windows)...\n');
   spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', 'claude'], { shell: true });
   return { success: true };
 });
@@ -633,94 +629,7 @@ ipcMain.handle('refresh-model-pool', async () => {
   }
 });
 
-// ─── IPC Handlers: Sidecar ───────────────────────────────────────────────────
-// Falls back to direct bun spawn if the Task Scheduler task isn’t installed.
 
-let sidecarDirectProcess = null;
-
-ipcMain.handle('start-sidecar', async (event, token) => {
-  if (token) {
-    config.token = token;
-    saveConfig();
-  }
-
-  const registered = await isTaskRegistered(SIDECAR_TASK);
-
-  if (registered) {
-    // ── Path A: Task Scheduler 24/7 ───────────────────────────────
-    sendLog('sidecar', '[SYSTEM] Starting Soverign Sidecar (via Task Scheduler)...\n');
-    await runSchtasks(`/run /tn "${SIDECAR_TASK}"`);
-    if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', true);
-    return { success: true };
-  }
-
-  // ── Path B: Direct bun spawn ────────────────────────────────
-  if (!fs.existsSync(sidecarScript)) {
-    return { success: false, error: `Sidecar script not found: ${sidecarScript}` };
-  }
-
-  sendLog('sidecar', '[SYSTEM] Task not installed — launching sidecar directly...\n');
-  sendLog('sidecar', `[SYSTEM] Command: ${config.bunPath || 'bun'} run ${sidecarScript}\n`);
-
-  if (!fs.existsSync(soverignDataDir)) {
-    fs.mkdirSync(soverignDataDir, { recursive: true });
-  }
-
-  const env = { ...process.env };
-  if (config.token) env.SOVERIGN_TOKEN = config.token;
-
-  sidecarDirectProcess = spawn(config.bunPath || 'bun', ['run', sidecarScript], {
-    cwd: coreDir,
-    env,
-    windowsHide: true,
-    detached: false,
-    shell: false,
-  });
-
-  sidecarDirectProcess.stdout?.on('data', (d) => sendLog('sidecar', d.toString()));
-  sidecarDirectProcess.stderr?.on('data', (d) => sendLog('sidecar', d.toString()));
-  sidecarDirectProcess.on('error', (err) => {
-    sendLog('sidecar', `[ERROR] Sidecar failed to start: ${err.message}\n`);
-    if (err.code === 'ENOENT') {
-      sendLog('sidecar', '[HINT] bun not found. Set the correct Bun path in Advanced Settings.\n');
-    }
-    sidecarDirectProcess = null;
-    if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', false);
-  });
-  sidecarDirectProcess.on('close', (code) => {
-    sendLog('sidecar', `[SYSTEM] Sidecar process exited (code ${code})\n`);
-    sidecarDirectProcess = null;
-    if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', false);
-  });
-
-  if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', true);
-  return { success: true };
-});
-
-ipcMain.handle('stop-sidecar', async () => {
-  sendLog('sidecar', '[SYSTEM] Stopping Soverign Sidecar...\n');
-
-  if (sidecarDirectProcess) {
-    try { exec(`taskkill /pid ${sidecarDirectProcess.pid} /T /F`); } catch (e) {}
-    sidecarDirectProcess = null;
-  }
-
-  const registered = await isTaskRegistered(SIDECAR_TASK);
-  if (registered) {
-    await runSchtasks(`/end /tn "${SIDECAR_TASK}"`);
-  }
-
-  if (mainWindow) mainWindow.webContents.send('sidecar-status-changed', false);
-  return { success: true };
-});
-
-ipcMain.handle('check-sidecar-status', async () => {
-  // If direct process is alive, report running
-  if (sidecarDirectProcess && !sidecarDirectProcess.killed) return true;
-  // Otherwise check Task Scheduler
-  const status = await getTaskStatus(SIDECAR_TASK);
-  return status === 'Running';
-});
 
 // ─── Watchdog ───────────────────────────────────────────────────────────────
 // NOTE: now that Task Scheduler's own "restart on failure" handles crash

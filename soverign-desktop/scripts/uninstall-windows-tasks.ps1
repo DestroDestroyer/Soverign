@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 
-foreach ($taskName in @('SoverignDaemon', 'SoverignSidecar')) {
+foreach ($taskName in @('SoverignService', 'SoverignDaemon', 'SoverignSidecar')) {
   $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   if ($task) {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue

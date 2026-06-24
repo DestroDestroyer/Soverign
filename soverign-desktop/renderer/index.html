@@ -47,18 +47,6 @@
             </div>
           </div>
 
-          <!-- Sidecar Control -->
-          <div class="service-card" id="sidecar-card">
-            <div class="service-header">
-              <span class="service-name">Windows Sidecar</span>
-              <span class="status-indicator stopped" id="sidecar-status-dot"></span>
-            </div>
-            <div class="status-text" id="sidecar-status-text">Checking...</div>
-            <div class="btn-group">
-              <button id="btn-start-sidecar" class="btn btn-primary btn-sm">Start</button>
-              <button id="btn-stop-sidecar" class="btn btn-secondary btn-sm" disabled>Stop</button>
-            </div>
-          </div>
         </div>
 
         <!-- Model & API Keys Configuration -->
@@ -227,20 +215,12 @@
               <input type="checkbox" id="chk-auto-daemon" checked>
               <label for="chk-auto-daemon">Auto-start Daemon when app opens</label>
             </div>
-            <div class="settings-checkbox">
-              <input type="checkbox" id="chk-auto-sidecar" checked>
-              <label for="chk-auto-sidecar">Auto-start Sidecar when app opens</label>
-            </div>
             
             <hr style="border:0; border-top:1px solid #3b3b8a; margin: 15px 0;">
             <h3>24/7 Background Service</h3>
             <p style="font-size: 0.8em; color: var(--text-muted); margin-bottom: 10px;">
               Install Soverign as a native Windows scheduled task to run in the background 24/7.
             </p>
-            <div class="settings-checkbox" style="margin-bottom: 10px;">
-              <input type="checkbox" id="chk-install-sidecar">
-              <label for="chk-install-sidecar">Include Sidecar in Background Service</label>
-            </div>
             <div style="display:flex; gap: 8px; margin-bottom: 15px;">
               <button id="btn-install-service" class="btn btn-primary btn-sm" style="flex:1;">Install Service</button>
               <button id="btn-uninstall-service" class="btn btn-outline btn-sm" style="flex:1;">Uninstall Service</button>
@@ -256,7 +236,6 @@
         <div class="drawer-header">
           <div class="drawer-tabs">
             <button class="drawer-tab active" data-tab="daemon-logs">Daemon Output</button>
-            <button class="drawer-tab" data-tab="sidecar-logs">Sidecar Output</button>
           </div>
           <div class="drawer-actions">
             <button id="btn-clear-logs" class="btn btn-outline btn-xs">Clear</button>
@@ -266,9 +245,6 @@
         <div class="drawer-body">
           <div class="tab-content active" id="daemon-logs">
             <pre class="terminal-stdout" id="daemon-terminal"></pre>
-          </div>
-          <div class="tab-content" id="sidecar-logs">
-            <pre class="terminal-stdout" id="sidecar-terminal"></pre>
           </div>
         </div>
       </div>

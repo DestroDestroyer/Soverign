@@ -1,23 +1,21 @@
 #Requires -RunAsAdministrator
 <#
-  Soverign — Install 24/7 Background Services
+  Soverign — Install 24/7 Background Service
   ---------------------------------------------------------------------------
-  Registers BOTH the Soverign Daemon AND the Sidecar as native Windows
-  Scheduled Tasks. Once installed they:
+  Registers the UNIFIED Soverign Daemon as a Windows Scheduled Task.
 
-    - Start automatically every time you log on
-    - Keep running even after you close the Soverign Desktop Console
-    - Auto-restart if they crash (RestartCount 999, interval 1 min)
-    - Require ZERO extra software — pure schtasks / Task Scheduler
+  The daemon already manages everything internally:
+    • AI chat / agent services
+    • SidecarManager (Claude Code auth + connections)
+    • WebSocket server on port 3142
+    • Workflow engine
+    • Observer + awareness services
+
+  One task. One process. Zero complexity.
 
   Usage (run as Administrator):
     .\install-windows-tasks.ps1
-    .\install-windows-tasks.ps1 -SkipSidecar    # daemon only
 #>
-
-param(
-  [switch]$SkipSidecar
-)
 
 $ErrorActionPreference = 'Stop'
 
@@ -33,49 +31,61 @@ function Resolve-BunPath {
 $bunPath = Resolve-BunPath
 
 # ── Resolve project paths ────────────────────────────────────────────────────
-# This script lives at:  <root>\soverign-desktop\scripts\install-windows-tasks.ps1
-# So the core dir is:   <root>\soverign-core
-$scriptDir    = $PSScriptRoot                                         # …\soverign-desktop\scripts
-$desktopDir   = (Get-Item $scriptDir).Parent.FullName                 # …\soverign-desktop
-$workspaceRoot = (Get-Item $desktopDir).Parent.FullName               # …\Soverign
-$coreDir      = Join-Path $workspaceRoot "soverign-core"
-
+# Script is at: <root>\soverign-desktop\scripts\install-windows-tasks.ps1
+$scriptDir     = $PSScriptRoot
+$desktopDir    = (Get-Item $scriptDir).Parent.FullName
+$workspaceRoot = (Get-Item $desktopDir).Parent.FullName
+$coreDir       = Join-Path $workspaceRoot "soverign-core"
 $daemonScript  = Join-Path $coreDir "src\daemon\index.ts"
-$sidecarScript = Join-Path $coreDir "src\sidecar\index.ts"
 
 if (-not (Test-Path $daemonScript)) {
   throw "Daemon entry point not found: $daemonScript"
 }
-if (-not $SkipSidecar -and -not (Test-Path $sidecarScript)) {
-  Write-Host "[WARN] Sidecar entry point not found: $sidecarScript" -ForegroundColor Yellow
-  Write-Host "[WARN] Skipping sidecar registration." -ForegroundColor Yellow
-  $SkipSidecar = $true
+
+# ── Ensure data / log directory ──────────────────────────────────────────────
+$dataDir = Join-Path $env:USERPROFILE ".soverign"
+$logFile = Join-Path $dataDir "soverign.log"
+
+if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+if (-not (Test-Path $logFile))  { New-Item -ItemType File    -Path $logFile -Force | Out-Null }
+
+# ── Ensure config.yaml is valid (no duplicate keys) ─────────────────────────
+$configFile = Join-Path $dataDir "config.yaml"
+$defaultConfig = @"
+llm:
+  default: "ollama:qwen2.5:1.5b"
+  providers:
+    ollama:
+      kind: ollama
+      base_url: "http://127.0.0.1:11434"
+  tiers: {}
+"@
+if (-not (Test-Path $configFile)) {
+  $defaultConfig | Set-Content $configFile -Encoding UTF8
+  Write-Host "[OK] Created default config.yaml" -ForegroundColor Green
 }
 
-# ── Ensure log directory ─────────────────────────────────────────────────────
-$dataDir  = Join-Path $env:USERPROFILE ".soverign"
-$logFile  = Join-Path $dataDir "soverign.log"
-$sidecarLogFile = Join-Path $dataDir "sidecar.log"
-
-if (-not (Test-Path $dataDir)) {
-  New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-}
-foreach ($f in @($logFile, $sidecarLogFile)) {
-  if (-not (Test-Path $f)) { New-Item -ItemType File -Path $f -Force | Out-Null }
-}
-
+# ── Print summary ────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "Bun:            $bunPath"      -ForegroundColor Cyan
-Write-Host "Core dir:       $coreDir"      -ForegroundColor Cyan
-Write-Host "Daemon script:  $daemonScript" -ForegroundColor Cyan
-if (-not $SkipSidecar) {
-  Write-Host "Sidecar script: $sidecarScript" -ForegroundColor Cyan
-}
-Write-Host "Log dir:        $dataDir"      -ForegroundColor Cyan
+Write-Host "Bun:    $bunPath"     -ForegroundColor Cyan
+Write-Host "Core:   $coreDir"    -ForegroundColor Cyan
+Write-Host "Entry:  $daemonScript" -ForegroundColor Cyan
+Write-Host "Log:    $logFile"    -ForegroundColor Cyan
 Write-Host ""
 
-# ── Shared task settings ─────────────────────────────────────────────────────
-$commonSettings = New-ScheduledTaskSettingsSet `
+# ── Remove old separate tasks (clean up legacy setup) ────────────────────────
+foreach ($old in @('SoverignDaemon','SoverignSidecar')) {
+  Unregister-ScheduledTask -TaskName $old -Confirm:$false -ErrorAction SilentlyContinue
+}
+
+# ── Build the single unified task ────────────────────────────────────────────
+# cmd.exe wrapping ensures bun stdout/stderr are flushed to the log file
+$taskArg = "/c `"`"$bunPath`" run `"$daemonScript`" >> `"$logFile`" 2>&1`""
+
+$action   = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $taskArg -WorkingDirectory $coreDir
+$trigger  = New-ScheduledTaskTrigger -AtLogOn
+
+$settings = New-ScheduledTaskSettingsSet `
   -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries `
   -StartWhenAvailable `
@@ -84,58 +94,24 @@ $commonSettings = New-ScheduledTaskSettingsSet `
   -ExecutionTimeLimit ([TimeSpan]::Zero) `
   -Hidden
 
-# ── Daemon task ──────────────────────────────────────────────────────────────
-$daemonArg = "/c `"`"$bunPath`" run `"$daemonScript`" >> `"$logFile`" 2>&1`""
-
-$daemonAction  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $daemonArg -WorkingDirectory $coreDir
-$daemonTrigger = New-ScheduledTaskTrigger -AtLogOn
-
-Unregister-ScheduledTask -TaskName "SoverignDaemon" -Confirm:$false -ErrorAction SilentlyContinue
-
 Register-ScheduledTask `
-  -TaskName    "SoverignDaemon" `
-  -Action      $daemonAction `
-  -Trigger     $daemonTrigger `
-  -Settings    $commonSettings `
+  -TaskName    "SoverignService" `
+  -Action      $action `
+  -Trigger     $trigger `
+  -Settings    $settings `
   -RunLevel    Highest `
-  -Description "Soverign local AI daemon. Runs 24/7, restarts on crash." | Out-Null
+  -Description "Soverign unified AI daemon. Manages all AI, sidecar, and workflow services. Runs 24/7, auto-restarts on crash." | Out-Null
 
-Write-Host "[OK] SoverignDaemon task registered." -ForegroundColor Green
+Write-Host "[OK] SoverignService task registered." -ForegroundColor Green
 
-# ── Sidecar task ─────────────────────────────────────────────────────────────
-if (-not $SkipSidecar) {
-  $sidecarArg = "/c `"`"$bunPath`" run `"$sidecarScript`" >> `"$sidecarLogFile`" 2>&1`""
+# ── Start task immediately ────────────────────────────────────────────────────
+Write-Host "Starting service now..." -ForegroundColor Cyan
+Start-ScheduledTask -TaskName "SoverignService"
+Start-Sleep -Seconds 2
 
-  $sidecarAction  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $sidecarArg -WorkingDirectory $coreDir
-  $sidecarTrigger = New-ScheduledTaskTrigger -AtLogOn
-  $sidecarTrigger.Delay = 'PT15S'   # 15s head-start for daemon
-
-  Unregister-ScheduledTask -TaskName "SoverignSidecar" -Confirm:$false -ErrorAction SilentlyContinue
-
-  Register-ScheduledTask `
-    -TaskName    "SoverignSidecar" `
-    -Action      $sidecarAction `
-    -Trigger     $sidecarTrigger `
-    -Settings    $commonSettings `
-    -RunLevel    Highest `
-    -Description "Soverign sidecar. Runs 24/7 in the background, restarts on crash." | Out-Null
-
-  Write-Host "[OK] SoverignSidecar task registered." -ForegroundColor Green
-}
-
-# ── Start tasks immediately (no need to log off/on) ─────────────────────────
-Write-Host ""
-Write-Host "Starting tasks now..." -ForegroundColor Cyan
-
-Start-ScheduledTask -TaskName "SoverignDaemon"
-Write-Host "[OK] SoverignDaemon started." -ForegroundColor Green
-
-if (-not $SkipSidecar) {
-  Start-Sleep -Seconds 3
-  Start-ScheduledTask -TaskName "SoverignSidecar"
-  Write-Host "[OK] SoverignSidecar started." -ForegroundColor Green
-}
+$status = (Get-ScheduledTaskInfo -TaskName "SoverignService").LastTaskResult
+Write-Host "[OK] SoverignService started (last result: $status)." -ForegroundColor Green
 
 Write-Host ""
-Write-Host "Done! Both services now run 24/7, survive app close, and restart on crash." -ForegroundColor Cyan
-Write-Host "Manage them via Task Scheduler (taskschd.msc) or the Soverign Console." -ForegroundColor Cyan
+Write-Host "Done! Soverign now runs 24/7, survives app close, and auto-restarts on crash." -ForegroundColor Cyan
+Write-Host "Manage via Task Scheduler (taskschd.msc) or the Soverign Console." -ForegroundColor Cyan
