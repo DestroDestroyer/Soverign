@@ -101,58 +101,76 @@ function applyEnvOverrides(config: SoverignConfig): void {
 export async function loadConfig(configPath?: string): Promise<SoverignConfig> {
   const path = configPath || expandTilde('~/.soverign/config.yaml');
 
-  const file = Bun.file(path);
-  const exists = await file.exists();
+  try {
+    const file = Bun.file(path);
+    const exists = await file.exists();
 
-  if (!exists) {
-    console.warn(`Config file not found at ${path}, using defaults`);
-    const config = structuredClone(DEFAULT_CONFIG);
+    if (!exists) {
+      console.warn(`Config file not found at ${path}, using defaults`);
+      const config = structuredClone(DEFAULT_CONFIG);
+      config.daemon.data_dir = expandTilde(config.daemon.data_dir);
+      config.daemon.db_path = expandTilde(config.daemon.db_path);
+      applyEnvOverrides(config);
+      return config;
+    }
+
+    // File exists — parse errors should be fatal.
+    // `merge: true` enables YAML merge keys (`<<: *anchor`) so configs can share
+    // blocks across environments. Removing this flag would silently break any
+    // config that relies on anchors — keep it unless you're sure.
+    const text = await file.text();
+    const doc = YAML.parseDocument(text, { merge: true });
+    if (doc.errors.length > 0) {
+      // `yaml`'s error.message already embeds `at line X, column Y:` and a caret
+      // diagram, so no need to prefix our own position info.
+      const formatted = doc.errors.map((entry) => entry.message);
+      throw new Error(`Failed to parse YAML config:\n  ${formatted.join('\n  ')}`);
+    }
+    // `doc.toJS()` returns null for an empty (or comment-only) file — coerce to
+    // an empty object so downstream merges fall back cleanly to defaults.
+    const parsed = (doc.toJS() ?? {}) as Partial<SoverignConfig>;
+
+    // Deep merge with defaults to ensure all required fields exist
+    const config = deepMerge(structuredClone(DEFAULT_CONFIG), parsed) as SoverignConfig;
+
+    // Expand tilde in paths
     config.daemon.data_dir = expandTilde(config.daemon.data_dir);
     config.daemon.db_path = expandTilde(config.daemon.db_path);
+
+    // Apply environment variable overrides
     applyEnvOverrides(config);
+
+    // If the config.yaml explicitly defines a primary LLM, preserve the entire llm block.
+    // Otherwise, default to empty settings (to be loaded from DB / defaults).
+    if (parsed.llm && parsed.llm.primary) {
+      config.llm = parsed.llm;
+    } else {
+      config.llm = structuredClone(DEFAULT_CONFIG.llm);
+    }
+
+    // Force telemetry to be disabled to preserve privacy (strict local-first)
+    if (config.telemetry) {
+      config.telemetry.enabled = false;
+    }
+
     return config;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[Config] Failed to load config at ${path}: ${message}. Falling back to default configuration and attempting auto-repair...`);
+    const fallbackConfig = structuredClone(DEFAULT_CONFIG);
+    fallbackConfig.daemon.data_dir = expandTilde(fallbackConfig.daemon.data_dir);
+    fallbackConfig.daemon.db_path = expandTilde(fallbackConfig.daemon.db_path);
+    applyEnvOverrides(fallbackConfig);
+
+    try {
+      await saveConfig(fallbackConfig, path);
+      console.log(`[Config] Auto-repair succeeded: config.yaml rewritten with defaults.`);
+    } catch (saveErr) {
+      console.error(`[Config] Auto-repair failed: unable to write clean config:`, saveErr);
+    }
+
+    return fallbackConfig;
   }
-
-  // File exists — parse errors should be fatal.
-  // `merge: true` enables YAML merge keys (`<<: *anchor`) so configs can share
-  // blocks across environments. Removing this flag would silently break any
-  // config that relies on anchors — keep it unless you're sure.
-  const text = await file.text();
-  const doc = YAML.parseDocument(text, { merge: true });
-  if (doc.errors.length > 0) {
-    // `yaml`'s error.message already embeds `at line X, column Y:` and a caret
-    // diagram, so no need to prefix our own position info.
-    const formatted = doc.errors.map((entry) => entry.message);
-    throw new Error(`Failed to parse YAML config at ${path}:\n  ${formatted.join('\n  ')}`);
-  }
-  // `doc.toJS()` returns null for an empty (or comment-only) file — coerce to
-  // an empty object so downstream merges fall back cleanly to defaults.
-  const parsed = (doc.toJS() ?? {}) as Partial<SoverignConfig>;
-
-  // Deep merge with defaults to ensure all required fields exist
-  const config = deepMerge(structuredClone(DEFAULT_CONFIG), parsed) as SoverignConfig;
-
-  // Expand tilde in paths
-  config.daemon.data_dir = expandTilde(config.daemon.data_dir);
-  config.daemon.db_path = expandTilde(config.daemon.db_path);
-
-  // Apply environment variable overrides
-  applyEnvOverrides(config);
-
-  // If the config.yaml explicitly defines a primary LLM, preserve the entire llm block.
-  // Otherwise, default to empty settings (to be loaded from DB / defaults).
-  if (parsed.llm && parsed.llm.primary) {
-    config.llm = parsed.llm;
-  } else {
-    config.llm = structuredClone(DEFAULT_CONFIG.llm);
-  }
-
-  // Force telemetry to be disabled to preserve privacy (strict local-first)
-  if (config.telemetry) {
-    config.telemetry.enabled = false;
-  }
-
-  return config;
 }
 
 /**
