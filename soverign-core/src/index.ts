@@ -1,0 +1,92 @@
+import { RepositoryService } from './repository';
+import { DesktopApp } from './desktop';
+import { Daemon } from './daemon';
+import { Sidecar } from './sidecar';
+import { AuthorityService } from './authority';
+import { GoalsService } from './goals';
+import { AwarenessService } from './awareness';
+import { TelemetryService } from './telemetry';
+import { VoiceStack } from './voice';
+import { BrainManager } from './brain';
+import { RetryManager } from './retry';
+import { HealthMonitor } from './health';
+import { MemoryManager } from './memory';
+import { GraphifyService } from './graphify';
+import { ObsidianIntegration } from './obsidian';
+import { FailoverService } from './failover';
+import { WindowsIntegration } from './windows';
+import { SecurityService } from './security';
+import { AutomationService } from './automation';
+import { RoadmapService } from './roadmap';
+import { logger } from './interfaces';
+
+async function main() {
+  const repo = new RepositoryService();
+  const desktop = new DesktopApp();
+  const daemon = new Daemon();
+  const sidecar = new Sidecar();
+  const auth = new AuthorityService();
+  const goals = new GoalsService();
+  const awareness = new AwarenessService();
+  const telemetry = new TelemetryService();
+  const voice = new VoiceStack();
+  const brain = new BrainManager();
+  const retry = new RetryManager();
+  const health = new HealthMonitor();
+  const memory = new MemoryManager();
+  const graph = new GraphifyService();
+  const obsidian = new ObsidianIntegration();
+  const failover = new FailoverService();
+  const windows = new WindowsIntegration();
+  const security = new SecurityService();
+  const automation = new AutomationService();
+  const roadmap = new RoadmapService();
+
+  health.registerService('repository', repo);
+  health.registerService('desktop', desktop);
+  health.registerService('daemon', daemon);
+  health.registerService('sidecar', sidecar);
+  health.registerService('authority', auth);
+  health.registerService('goals', goals);
+  health.registerService('awareness', awareness);
+  health.registerService('telemetry', telemetry);
+  health.registerService('voice', voice);
+  health.registerService('brain', brain);
+  health.registerService('retry', retry);
+  health.registerService('memory', memory);
+  health.registerService('graphify', graph);
+  health.registerService('obsidian', obsidian);
+  health.registerService('failover', failover);
+  health.registerService('windows', windows);
+  health.registerService('security', security);
+  health.registerService('automation', automation);
+  health.registerService('roadmap', roadmap);
+
+  await repo.start();
+  await desktop.start();
+  await daemon.start();
+  await sidecar.start();
+  await auth.start();
+  await goals.start();
+  await awareness.start();
+  await telemetry.start();
+  await voice.start();
+  await brain.start();
+  await retry.start();
+  await memory.start();
+  await graph.start();
+  await obsidian.start();
+  await failover.start();
+  await windows.start();
+  await security.start();
+  await automation.start();
+  await roadmap.start();
+  await health.start();
+
+  logger.info('All services started successfully.');
+}
+
+main().catch(err => {
+  logger.error('Fatal error', err);
+  process.exit(1);
+});

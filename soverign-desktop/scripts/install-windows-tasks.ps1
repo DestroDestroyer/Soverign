@@ -79,10 +79,16 @@ foreach ($old in @('SoverignDaemon','SoverignSidecar')) {
 }
 
 # ── Build the single unified task ────────────────────────────────────────────
-# cmd.exe wrapping ensures bun stdout/stderr are flushed to the log file
-$taskArg = "/c `"`"$bunPath`" run `"$daemonScript`" >> `"$logFile`" 2>&1`""
+# We use a .vbs wrapper to launch cmd.exe silently so no black window remains.
+$vbsScript = Join-Path $dataDir "run-hidden.vbs"
+$vbsContent = "Set WshShell = CreateObject(`"WScript.Shell`")`nWshShell.Run WScript.Arguments(0), 0, False"
+Set-Content -Path $vbsScript -Value $vbsContent -Encoding Ascii
 
-$action   = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $taskArg -WorkingDirectory $coreDir
+# cmd.exe wrapping ensures bun stdout/stderr are flushed to the log file
+$cmdArg = "/c `"`"$bunPath`" run `"$daemonScript`" >> `"$logFile`" 2>&1`""
+$taskArg = "`"$vbsScript`" `"cmd.exe $cmdArg`""
+
+$action   = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $taskArg -WorkingDirectory $coreDir
 $trigger  = New-ScheduledTaskTrigger -AtLogOn
 
 $settings = New-ScheduledTaskSettingsSet `
