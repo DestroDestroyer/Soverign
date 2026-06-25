@@ -551,6 +551,12 @@ ipcMain.handle('save-api-config', async (event, data) => {
   } else if (provider === 'openrouter-cloud') {
     defaultModel = `openrouter:${customModel || 'qwen/qwen-2.5-coder-1.5b-instruct:free'}`;
     providerDetails = `    openrouter:\n      api_key: "${apiKey}"`;
+  } else if (provider === 'groq-cloud') {
+    defaultModel = `groq:${customModel || 'llama-3.3-70b-versatile'}`;
+    providerDetails = `    groq:\n      api_key: "${apiKey}"`;
+  } else if (provider === 'nvidia-cloud') {
+    defaultModel = `nvidia:${customModel || 'meta/llama-3.1-70b-instruct'}`;
+    providerDetails = `    nvidia:\n      api_key: "${apiKey}"`;
   }
 
   const newLlmBlock = `llm:\n  default: "${defaultModel}"\n  providers:\n${providerDetails}\n  tiers: {}\n`;
@@ -587,10 +593,12 @@ ipcMain.handle('get-api-config', () => {
   let apiKey = '';
   let customModel = modelId || 'qwen2.5:1.5b';
 
-  if (providerName === 'anthropic') provider = 'anthropic-cloud';
-  else if (providerName === 'gemini') provider = 'gemini-cloud';
-  else if (providerName === 'openai') provider = 'openai-cloud';
+  if (providerName === 'anthropic')   provider = 'anthropic-cloud';
+  else if (providerName === 'gemini')   provider = 'gemini-cloud';
+  else if (providerName === 'openai')   provider = 'openai-cloud';
   else if (providerName === 'openrouter') provider = 'openrouter-cloud';
+  else if (providerName === 'groq')    provider = 'groq-cloud';
+  else if (providerName === 'nvidia')  provider = 'nvidia-cloud';
 
   if (provider !== 'ollama-local') {
     const keyMatch = content.match(/api_key:\s*"([^"]+)"/);
@@ -677,7 +685,11 @@ ipcMain.handle('check-watchdog-status', () => watchdogProcess !== null);
 // Health check — used by preload.js healthCheck() API
 ipcMain.handle('health-check', async () => {
   const isRunning = await checkDaemonPort();
-  return { status: isRunning ? 'running' : 'stopped', port: 3142 };
+  return {
+    status: isRunning ? 'running' : 'stopped',
+    port:   3142,
+    ts:     Date.now(),
+  };
 });
 
 // ─── Focus Mode ─────────────────────────────────────────────────────────────

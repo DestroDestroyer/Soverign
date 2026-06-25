@@ -47,6 +47,15 @@
             </div>
           </div>
 
+          <!-- System Health Mini Panel -->
+          <div class="service-card" id="health-card" style="margin-top:8px;">
+            <div class="service-header">
+              <span class="service-name">System Health</span>
+              <span class="status-indicator stopped" id="health-status-dot"></span>
+            </div>
+            <div class="status-text" id="health-status-text">—</div>
+          </div>
+
         </div>
 
         <!-- Model & API Keys Configuration -->
@@ -55,11 +64,13 @@
           <div class="config-card">
             <label for="sel-model-provider">Select Provider</label>
             <select id="sel-model-provider" class="btn-block" style="background:#1a1a3a; color:#fff; border:1px solid #3b3b8a; padding:6px; border-radius:4px; margin-bottom:8px; width:100%;">
-              <option value="ollama-local">Qwen 2.5 1.5B — Local (Ollama)</option>
-              <option value="anthropic-cloud">Claude 3.5 Sonnet (Anthropic)</option>
-              <option value="gemini-cloud">Gemini 1.5 Pro (Google)</option>
-              <option value="openai-cloud">GPT-4o / Mini (OpenAI)</option>
+              <option value="ollama-local">Qwen 2.5 — Local (Ollama)</option>
+              <option value="anthropic-cloud">Claude (Anthropic)</option>
+              <option value="gemini-cloud">Gemini (Google)</option>
+              <option value="openai-cloud">GPT-4o (OpenAI)</option>
               <option value="openrouter-cloud">OpenRouter (Any Model)</option>
+              <option value="groq-cloud">Groq (Fast Inference)</option>
+              <option value="nvidia-cloud">NVIDIA NIM</option>
             </select>
 
             <div id="api-key-container" class="hidden">
@@ -75,7 +86,7 @@
               <input type="text" id="custom-model-input" placeholder="e.g. claude-3-5-haiku-latest" style="background:#1a1a3a; color:#fff; border:1px solid #3b3b8a; padding:6px; border-radius:4px; width:100%;">
             </div>
             
-            <button id="btn-save-api-config" class="btn btn-accent btn-block btn-sm" style="margin-top:8px;">Save & Apply Settings</button>
+            <button id="btn-save-api-config" class="btn btn-accent btn-block btn-sm" style="margin-top:8px;">Save &amp; Apply Settings</button>
           </div>
         </div>
 
@@ -86,6 +97,17 @@
             <label for="txt-pull-model">Model Name</label>
             <input type="text" id="txt-pull-model" placeholder="e.g. llama3.1, phi3, mistral" style="background:#1a1a3a; color:#fff; border:1px solid #3b3b8a; padding:6px; border-radius:4px; margin-bottom:8px; width:100%;">
             <button id="btn-pull-model" class="btn btn-primary btn-block btn-sm">📥 Download Model</button>
+
+            <!-- Local models list -->
+            <div style="margin-top:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-size:0.75em; color:var(--text-muted);">Installed models</span>
+                <button id="btn-refresh-local-models" class="btn btn-outline btn-xs">↻</button>
+              </div>
+              <div id="local-models-list" style="font-size:0.72em; color:var(--text-muted); max-height:80px; overflow-y:auto; line-height:1.8;">
+                —
+              </div>
+            </div>
           </div>
         </div>
 
@@ -152,7 +174,7 @@
       </nav>
       
       <div class="sidebar-footer">
-        <span>v1.0.0 • Connected locally</span>
+        <span>v1.1.0 • Soverign Core</span>
       </div>
     </aside>
 
@@ -226,6 +248,13 @@
               <button id="btn-uninstall-service" class="btn btn-outline btn-sm" style="flex:1;">Uninstall Service</button>
             </div>
             <div id="service-status" style="font-size: 0.8em; color: var(--accent-cyan); margin-bottom: 15px;">Checking service status...</div>
+
+            <hr style="border:0; border-top:1px solid #3b3b8a; margin: 15px 0;">
+            <h3>System Information</h3>
+            <div id="sys-info-panel" style="font-size:0.78em; color:var(--text-muted); line-height:1.9; background:rgba(0,0,0,0.3); border-radius:8px; padding:10px; margin-bottom:15px;">
+              <span id="sys-info-text">Click 'Scan Specs' in the sidebar to populate.</span>
+            </div>
+
             <button id="btn-save-settings" class="btn btn-primary">Save Settings</button>
           </div>
         </div>

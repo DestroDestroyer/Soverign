@@ -15,155 +15,173 @@ function showToast(message, type = 'info') {
     <button class="toast-close" onclick="this.parentElement.remove()">×</button>
   `;
   container.appendChild(toast);
-  // Auto-dismiss
   const delay = type === 'error' || type === 'warn' ? 5000 : 3000;
   setTimeout(() => toast.remove(), delay);
 }
 window.showToast = showToast;
 
-// DOM elements
-const daemonStatusDot = document.getElementById('daemon-status-dot');
+// ── DOM elements ──────────────────────────────────────────────────────────────
+const daemonStatusDot  = document.getElementById('daemon-status-dot');
 const daemonStatusText = document.getElementById('daemon-status-text');
-const btnStartDaemon = document.getElementById('btn-start-daemon');
-const btnStopDaemon = document.getElementById('btn-stop-daemon');
+const btnStartDaemon   = document.getElementById('btn-start-daemon');
+const btnStopDaemon    = document.getElementById('btn-stop-daemon');
 
+// Health panel
+const healthStatusDot  = document.getElementById('health-status-dot');
+const healthStatusText = document.getElementById('health-status-text');
 
-// New Model & API Elements
-const selModelProvider = document.getElementById('sel-model-provider');
-const apiKeyContainer = document.getElementById('api-key-container');
-const apiKeyInput = document.getElementById('api-key-input');
+// Model & API Elements
+const selModelProvider       = document.getElementById('sel-model-provider');
+const apiKeyContainer        = document.getElementById('api-key-container');
+const apiKeyInput            = document.getElementById('api-key-input');
 const btnToggleKeyVisibility = document.getElementById('btn-toggle-key-visibility');
-const customModelContainer = document.getElementById('custom-model-container');
-const customModelInput = document.getElementById('custom-model-input');
-const btnSaveApiConfig = document.getElementById('btn-save-api-config');
+const customModelContainer   = document.getElementById('custom-model-container');
+const customModelInput       = document.getElementById('custom-model-input');
+const btnSaveApiConfig       = document.getElementById('btn-save-api-config');
 
-// New Model Downloader & Claude Code elements
-const txtPullModel = document.getElementById('txt-pull-model');
-const btnPullModel = document.getElementById('btn-pull-model');
+// Model Downloader & Claude Code
+const txtPullModel       = document.getElementById('txt-pull-model');
+const btnPullModel       = document.getElementById('btn-pull-model');
 const btnLaunchClaudeWin = document.getElementById('btn-launch-claude-win');
+const localModelsList    = document.getElementById('local-models-list');
+const btnRefreshLocalModels = document.getElementById('btn-refresh-local-models');
 
-// Splash loading bar elements
+// Boot / splash elements
 const bootLoadingContainer = document.getElementById('boot-loading-container');
-const bootStatusText = document.getElementById('boot-status-text');
-const bootTimer = document.getElementById('boot-timer');
-const bootProgressBar = document.getElementById('boot-progress-bar');
+const bootStatusText       = document.getElementById('boot-status-text');
+const bootTimer            = document.getElementById('boot-timer');
+const bootProgressBar      = document.getElementById('boot-progress-bar');
 
-const btnStartAll = document.getElementById('btn-start-all');
-const btnReloadWebview = document.getElementById('btn-reload-webview');
-const btnToggleLogs = document.getElementById('btn-toggle-logs');
-const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
-const btnCloseLogs = document.getElementById('btn-close-logs');
-const btnClearLogs = document.getElementById('btn-clear-logs');
-const btnSettings = document.getElementById('btn-settings');
-const btnCloseSettings = document.getElementById('btn-close-settings');
-const btnSaveSettings = document.getElementById('btn-save-settings');
+// Top bar / layout controls
+const btnStartAll       = document.getElementById('btn-start-all');
+const btnReloadWebview  = document.getElementById('btn-reload-webview');
+const btnToggleLogs     = document.getElementById('btn-toggle-logs');
+const btnToggleSidebar  = document.getElementById('btn-toggle-sidebar');
+const btnCloseLogs      = document.getElementById('btn-close-logs');
+const btnClearLogs      = document.getElementById('btn-clear-logs');
+const btnSettings       = document.getElementById('btn-settings');
+const btnCloseSettings  = document.getElementById('btn-close-settings');
+const btnSaveSettings   = document.getElementById('btn-save-settings');
 
 // Service management
-const btnInstallService = document.getElementById('btn-install-service');
+const btnInstallService   = document.getElementById('btn-install-service');
 const btnUninstallService = document.getElementById('btn-uninstall-service');
-const serviceStatusText = document.getElementById('service-status');
+const serviceStatusText   = document.getElementById('service-status');
 
 // Focus mode
 const btnStartFocus = document.getElementById('btn-start-focus');
-const btnStopFocus = document.getElementById('btn-stop-focus');
+const btnStopFocus  = document.getElementById('btn-stop-focus');
 
-const chkUseQwen = document.getElementById('chk-use-qwen');
+// Checkboxes / misc
+const chkUseQwen     = document.getElementById('chk-use-qwen');
 const chkAutoCorrect = document.getElementById('chk-auto-correct');
 
-const splashView = document.getElementById('splash-view');
+// Views
+const splashView    = document.getElementById('splash-view');
 const dashboardView = document.getElementById('dashboard-view');
-const settingsView = document.getElementById('settings-view');
-const logsDrawer = document.getElementById('logs-drawer');
+const settingsView  = document.getElementById('settings-view');
+const logsDrawer    = document.getElementById('logs-drawer');
 const btnBootSystem = document.getElementById('btn-boot-system');
 
 const soverignWebview = document.getElementById('soverign-webview');
 
-const bunPathInput = document.getElementById('bun-path-input');
+// Advanced settings
+const bunPathInput  = document.getElementById('bun-path-input');
 const chkAutoDaemon = document.getElementById('chk-auto-daemon');
+const sysInfoText   = document.getElementById('sys-info-text');
 
+// Terminal / drawer
 const daemonTerminal = document.getElementById('daemon-terminal');
-const drawerTabs = document.querySelectorAll('.drawer-tab');
-const tabContents = document.querySelectorAll('.tab-content');
+const drawerTabs     = document.querySelectorAll('.drawer-tab');
+const tabContents    = document.querySelectorAll('.tab-content');
 
-// App state variables
-let appConfig = null;
-let daemonRunning = false;
-let activeTab = 'daemon-logs';
-let webviewLoaded = false;
-let statusCheckInProgress = false; // prevent overlapping 3s polls
+// ── App state ─────────────────────────────────────────────────────────────────
+let appConfig             = null;
+let daemonRunning         = false;
+let activeTab             = 'daemon-logs';
+let webviewLoaded         = false;
+let statusCheckInProgress = false;
 
-// Initialize app
+// ── Provider default model map ────────────────────────────────────────────────
+const PROVIDER_DEFAULTS = {
+  'ollama-local':    { placeholder: 'e.g. qwen2.5:1.5b, phi3:mini, mistral', needsKey: false },
+  'anthropic-cloud': { placeholder: 'e.g. claude-3-5-haiku-latest',          needsKey: true  },
+  'gemini-cloud':    { placeholder: 'e.g. gemini-1.5-flash',                  needsKey: true  },
+  'openai-cloud':    { placeholder: 'e.g. gpt-4o-mini',                       needsKey: true  },
+  'openrouter-cloud':{ placeholder: 'e.g. qwen/qwen-2.5-coder-1.5b-instruct:free', needsKey: true },
+  'groq-cloud':      { placeholder: 'e.g. llama-3.3-70b-versatile',           needsKey: true  },
+  'nvidia-cloud':    { placeholder: 'e.g. meta/llama-3.1-70b-instruct',       needsKey: true  },
+};
+
+// ── Initialize app ────────────────────────────────────────────────────────────
 async function init() {
-  // Load settings
   appConfig = await window.api.getConfig();
-  
-  // Populate UI
-  bunPathInput.value = appConfig.bunPath || 'bun';
+
+  // Populate advanced settings
+  bunPathInput.value    = appConfig.bunPath || 'bun';
   chkAutoDaemon.checked = appConfig.autoStartDaemon !== false;
 
   // Populate API configuration
   const apiConfig = await window.api.getApiConfig();
   selModelProvider.value = apiConfig.provider;
-  apiKeyInput.value = apiConfig.apiKey;
+  apiKeyInput.value      = apiConfig.apiKey;
   customModelInput.value = apiConfig.customModel;
   updateProviderFields();
 
-  // Setup Event Listeners
   setupEventListeners();
 
-  // Register Log Listener
+  // Register log listener
   window.api.onLog(({ source, text }) => {
     appendLog(source, text);
   });
-
 
   // Initial status checks
   await checkSystemStatus();
   if (typeof checkServiceStatus === 'function') await checkServiceStatus();
 
-  // Run periodic status checks
+  // Load local Ollama models
+  refreshLocalModels();
+
+  // Periodic status checks (concurrency-guarded)
   setInterval(checkSystemStatus, 3000);
 
-  // Auto-start actions if configured
+  // Auto-start
   if (appConfig.autoStartDaemon !== false && !daemonRunning) {
     bootDaemon();
   }
 }
 
+// ── Event Listeners ───────────────────────────────────────────────────────────
 function setupEventListeners() {
   // Daemon controls
   btnStartDaemon.addEventListener('click', bootDaemon);
   btnBootSystem.addEventListener('click', bootDaemon);
   btnStopDaemon.addEventListener('click', stopDaemon);
 
-
-  // API Config settings
+  // API Config
   selModelProvider.addEventListener('change', updateProviderFields);
   btnSaveApiConfig.addEventListener('click', saveApiConfig);
   btnToggleKeyVisibility.addEventListener('click', toggleKeyVisibility);
 
   // Model Manager
   btnPullModel.addEventListener('click', pullModel);
+  if (btnRefreshLocalModels) btnRefreshLocalModels.addEventListener('click', refreshLocalModels);
 
-  // Claude Code Integration
+  // Claude Code
   btnLaunchClaudeWin.addEventListener('click', () => window.api.launchClaudeWin());
 
-  // Hardware Scan
+  // Hardware scan
   const btnScanHardware = document.getElementById('btn-scan-hardware');
-  if (btnScanHardware) {
-    btnScanHardware.addEventListener('click', scanHardware);
-  }
+  if (btnScanHardware) btnScanHardware.addEventListener('click', scanHardware);
 
-  // Utility actions
+  // Layout
   btnStartAll.addEventListener('click', startAllServices);
-
   btnReloadWebview.addEventListener('click', () => {
     if (daemonRunning) {
       appendLog('daemon', '[SYSTEM] Reloading Soverign Interface...\n');
       soverignWebview.reload();
     }
   });
-
   btnToggleLogs.addEventListener('click', toggleLogsDrawer);
   btnToggleSidebar.addEventListener('click', () => {
     document.querySelector('.app-container').classList.toggle('sidebar-collapsed');
@@ -171,58 +189,52 @@ function setupEventListeners() {
   btnCloseLogs.addEventListener('click', () => logsDrawer.classList.add('collapsed'));
   btnClearLogs.addEventListener('click', clearActiveTerminal);
 
-  // Tab switching in logs drawer
+  // Drawer tab switching
   drawerTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       drawerTabs.forEach(t => t.classList.remove('active'));
       tabContents.forEach(c => c.classList.remove('active'));
-      
       tab.classList.add('active');
       activeTab = tab.getAttribute('data-tab');
       document.getElementById(activeTab).classList.add('active');
     });
   });
 
-  // Settings modals
+  // Settings modal
   btnSettings.addEventListener('click', async () => {
     settingsView.classList.remove('hidden');
     if (typeof checkServiceStatus === 'function') await checkServiceStatus();
   });
   btnCloseSettings.addEventListener('click', () => settingsView.classList.add('hidden'));
   btnSaveSettings.addEventListener('click', saveSettings);
-  
-  // Service Installer controls
-  if (btnInstallService) btnInstallService.addEventListener('click', installService);
+  settingsView.addEventListener('click', (e) => {
+    if (e.target === settingsView) settingsView.classList.add('hidden');
+  });
+
+  // Service installer
+  if (btnInstallService)   btnInstallService.addEventListener('click', installService);
   if (btnUninstallService) btnUninstallService.addEventListener('click', uninstallService);
 
-  // Focus Mode controls
+  // Focus Mode
   if (btnStartFocus) btnStartFocus.addEventListener('click', startFocusMode);
-  if (btnStopFocus) btnStopFocus.addEventListener('click', stopFocusMode);
-
-  // Close settings on background click
-  settingsView.addEventListener('click', (e) => {
-    if (e.target === settingsView) {
-      settingsView.classList.add('hidden');
-    }
-  });
+  if (btnStopFocus)  btnStopFocus.addEventListener('click', stopFocusMode);
 }
 
-// Toggle fields depending on provider selection
+// ── Provider field visibility ─────────────────────────────────────────────────
 function updateProviderFields() {
   const provider = selModelProvider.value;
-  if (provider === 'ollama-local') {
-    apiKeyContainer.classList.add('hidden');
-    // Show custom model for ollama too (to type e.g. qwen2.5:1.5b manually)
-    customModelContainer.classList.remove('hidden');
-    customModelInput.placeholder = 'e.g. qwen2.5:1.5b, phi3:mini, mistral';
-  } else {
+  const cfg = PROVIDER_DEFAULTS[provider] || { needsKey: true, placeholder: '' };
+
+  if (cfg.needsKey) {
     apiKeyContainer.classList.remove('hidden');
-    customModelContainer.classList.remove('hidden');
-    customModelInput.placeholder = 'e.g. claude-3-5-haiku-latest';
+  } else {
+    apiKeyContainer.classList.add('hidden');
   }
+  customModelContainer.classList.remove('hidden');
+  customModelInput.placeholder = cfg.placeholder;
 }
 
-// API Key visibility toggle
+// ── API Key visibility toggle ─────────────────────────────────────────────────
 function toggleKeyVisibility() {
   if (apiKeyInput.type === 'password') {
     apiKeyInput.type = 'text';
@@ -233,62 +245,83 @@ function toggleKeyVisibility() {
   }
 }
 
-// Save API configuration
+// ── Save API configuration ────────────────────────────────────────────────────
 async function saveApiConfig() {
-  const provider = selModelProvider.value;
-  const apiKey = apiKeyInput.value.trim();
+  const provider    = selModelProvider.value;
+  const apiKey      = apiKeyInput.value.trim();
   const customModel = customModelInput.value.trim();
 
-  if (provider !== 'ollama-local' && !apiKey) {
-    alert('Please enter an API Key for the selected provider!');
+  const cfg = PROVIDER_DEFAULTS[provider] || { needsKey: true };
+  if (cfg.needsKey && !apiKey) {
+    showToast('Please enter an API Key for the selected provider!', 'warn');
     return;
   }
 
   const result = await window.api.saveApiConfig({ provider, apiKey, customModel });
   if (result.success) {
-    const originalText = btnSaveApiConfig.textContent;
+    const original = btnSaveApiConfig.textContent;
     btnSaveApiConfig.textContent = '✓ Config Applied';
     btnSaveApiConfig.style.background = 'linear-gradient(135deg, #00e676, #00b0ff)';
     setTimeout(() => {
-      btnSaveApiConfig.textContent = originalText;
+      btnSaveApiConfig.textContent = original;
       btnSaveApiConfig.style.background = '';
     }, 2000);
+    showToast('Provider config saved!', 'success');
   } else {
-    alert(`Failed to save config: ${result.error}`);
+    showToast(`Failed to save config: ${result.error}`, 'error');
   }
 }
 
-// Pull local models
+// ── Pull local models ─────────────────────────────────────────────────────────
 async function pullModel() {
   const modelName = txtPullModel.value.trim();
   if (!modelName) {
-    alert('Please enter a valid model name (e.g. phi3, mistral).');
+    showToast('Please enter a valid model name (e.g. phi3, mistral).', 'warn');
     return;
   }
 
   btnPullModel.disabled = true;
   btnPullModel.textContent = '📥 Downloading...';
   logsDrawer.classList.remove('collapsed');
-  document.querySelector('[data-tab="daemon-logs"]').click();
+  const logTab = document.querySelector('[data-tab="daemon-logs"]');
+  if (logTab) logTab.click();
 
   const result = await window.api.pullModel(modelName);
   btnPullModel.disabled = false;
   btnPullModel.textContent = '📥 Download Model';
 
   if (result.success) {
-    alert(`Model "${modelName}" has been successfully downloaded!`);
+    showToast(`Model "${modelName}" downloaded successfully!`, 'success');
     txtPullModel.value = '';
+    refreshLocalModels();
   } else {
-    alert(`Failed to download model: ${result.error}`);
+    showToast(`Failed to download model: ${result.error}`, 'error');
   }
 }
 
-// Hardware scan
-async function scanHardware() {
-  const hwInfo = document.getElementById('hw-info');
-  const hwRecommendation = document.getElementById('hw-recommendation');
-  const btnScan = document.getElementById('btn-scan-hardware');
+// ── List locally installed Ollama models ──────────────────────────────────────
+async function refreshLocalModels() {
+  if (!localModelsList) return;
+  localModelsList.textContent = 'Loading...';
+  try {
+    const result = await window.api.listLocalModels();
+    if (result.success && result.models.length > 0) {
+      localModelsList.innerHTML = result.models
+        .map(m => `<div style="display:flex;justify-content:space-between;"><span>• ${m}</span><button onclick="activateModel('${m}','ollama')" style="background:none;border:none;color:var(--accent-cyan);cursor:pointer;font-size:0.9em;">Use</button></div>`)
+        .join('');
+    } else {
+      localModelsList.textContent = 'No models installed.';
+    }
+  } catch (e) {
+    localModelsList.textContent = 'Ollama not found.';
+  }
+}
 
+// ── Hardware scan ─────────────────────────────────────────────────────────────
+async function scanHardware() {
+  const hwInfo           = document.getElementById('hw-info');
+  const hwRecommendation = document.getElementById('hw-recommendation');
+  const btnScan          = document.getElementById('btn-scan-hardware');
   if (!hwInfo || !hwRecommendation || !btnScan) return;
 
   btnScan.disabled = true;
@@ -297,17 +330,31 @@ async function scanHardware() {
 
   try {
     const specs = await window.api.scanHardware();
+
     hwInfo.innerHTML = `
-      <b>${specs.cpuModel.split(' ').slice(0,5).join(' ')}</b><br>
+      <b>${specs.cpuModel.split(' ').slice(0, 5).join(' ')}</b><br>
       🧠 RAM: ${specs.totalRamGb}GB total, ${specs.freeRamGb}GB free<br>
       ⚡ CPU Cores: ${specs.cpuCores}<br>
-      🖥️ ${specs.platform} / ${specs.arch}
+      🖥️ GPU: ${specs.gpuName || 'None'} ${specs.gpuVramGb ? `(${specs.gpuVramGb}GB VRAM)` : ''}
     `;
+
     hwRecommendation.classList.remove('hidden');
     hwRecommendation.innerHTML = `
       💡 <b>Recommended:</b> ${specs.recommended}<br>
       ${specs.recommendation}
     `;
+
+    // Mirror specs into Settings > System Info panel
+    if (sysInfoText) {
+      sysInfoText.innerHTML = `
+        🖥️ <b>CPU:</b> ${specs.cpuModel} (${specs.cpuCores} cores)<br>
+        🧠 <b>RAM:</b> ${specs.totalRamGb}GB total / ${specs.freeRamGb}GB free<br>
+        ⚡ <b>GPU:</b> ${specs.gpuName || 'Unknown'} (${specs.gpuVramGb || 0}GB VRAM)<br>
+        🏷️ <b>OS:</b> ${specs.platform} / ${specs.arch}<br>
+        💡 <b>Recommended model:</b> ${specs.recommended}
+      `;
+    }
+
     // Auto-fill the model input
     if (customModelInput) {
       customModelInput.value = specs.recommended;
@@ -322,15 +369,21 @@ async function scanHardware() {
   btnScan.textContent = '🔍 Scan Specs';
 }
 
-// Check Daemon and Sidecar status
+// ── Status checks ─────────────────────────────────────────────────────────────
 async function checkSystemStatus() {
-  if (statusCheckInProgress) return; // skip if previous check is still running
+  if (statusCheckInProgress) return;
   statusCheckInProgress = true;
   try {
-    // 1. Daemon check
     const daemonStatus = await window.api.checkDaemonStatus();
     updateDaemonUI(daemonStatus);
 
+    // Lightweight health check if daemon is running
+    if (daemonStatus) {
+      const health = await window.api.healthCheck();
+      updateHealthUI(health);
+    } else {
+      updateHealthUI(null);
+    }
   } finally {
     statusCheckInProgress = false;
   }
@@ -339,17 +392,16 @@ async function checkSystemStatus() {
 function updateDaemonUI(isRunning) {
   daemonRunning = isRunning;
   document.body.classList.toggle('soverign-activated', isRunning);
+
   if (isRunning) {
     daemonStatusDot.className = 'status-indicator running';
     daemonStatusText.textContent = 'Online (Port 3142)';
     btnStartDaemon.disabled = true;
-    btnStopDaemon.disabled = false;
-    
-    // Switch views to show dashboard
+    btnStopDaemon.disabled  = false;
+
     splashView.classList.add('hidden');
     dashboardView.classList.remove('hidden');
-    
-    // Load source in webview if not done yet
+
     if (!webviewLoaded) {
       appendLog('daemon', '[SYSTEM] Directing interface view to http://localhost:3142\n');
       soverignWebview.src = 'http://localhost:3142';
@@ -359,12 +411,11 @@ function updateDaemonUI(isRunning) {
     daemonStatusDot.className = 'status-indicator stopped';
     daemonStatusText.textContent = 'Offline';
     btnStartDaemon.disabled = false;
-    btnStopDaemon.disabled = true;
-    
-    // Switch views to show splash
+    btnStopDaemon.disabled  = true;
+
     splashView.classList.remove('hidden');
     dashboardView.classList.add('hidden');
-    
+
     if (webviewLoaded) {
       soverignWebview.src = 'about:blank';
       webviewLoaded = false;
@@ -372,67 +423,64 @@ function updateDaemonUI(isRunning) {
   }
 }
 
-function updateSidecarUI(isRunning) {
-  sidecarRunning = isRunning;
-  if (isRunning) {
-    sidecarStatusDot.className = 'status-indicator running';
-    sidecarStatusText.textContent = 'Running';
-    btnStartSidecar.disabled = true;
+function updateHealthUI(health) {
+  if (!healthStatusDot || !healthStatusText) return;
+  if (!health) {
+    healthStatusDot.className = 'status-indicator stopped';
+    healthStatusText.textContent = '—';
+    return;
+  }
+  if (health.status === 'running') {
+    healthStatusDot.className = 'status-indicator running';
+    healthStatusText.textContent = `Port ${health.port} active`;
+  } else {
+    healthStatusDot.className = 'status-indicator stopped';
+    healthStatusText.textContent = 'Not responding';
+  }
+}
 
-
-// Daemon Actions
+// ── Daemon Actions ────────────────────────────────────────────────────────────
 async function bootDaemon() {
   daemonStatusDot.className = 'status-indicator pending';
   daemonStatusText.textContent = 'Booting...';
   btnStartDaemon.disabled = true;
-  btnBootSystem.disabled = true;
+  btnBootSystem.disabled  = true;
 
-  // Show loading container and logs
   bootLoadingContainer.classList.remove('hidden');
   logsDrawer.classList.remove('collapsed');
 
   const options = {
-    useQwen: chkUseQwen.checked,
+    useQwen:     chkUseQwen.checked,
     autoCorrect: chkAutoCorrect.checked
   };
 
-  // Start 10-second timer and progress bar simulation
-  let progress = 0;
+  let progress      = 0;
   let remainingTime = 10;
   bootProgressBar.style.width = '0%';
   bootTimer.textContent = '10s';
 
   const statuses = [
-    { threshold: 8, text: 'Initializing Soverign environment...' },
-    { threshold: 6, text: 'Booting Soverign Brain...' },
-    { threshold: 4, text: 'Loading local model configuration...' },
+    { threshold: 8, text: 'Initializing Soverign environment...'    },
+    { threshold: 6, text: 'Booting Soverign Brain...'               },
+    { threshold: 4, text: 'Loading local model configuration...'    },
     { threshold: 2, text: 'Starting channels & websocket server...' },
-    { threshold: 0, text: 'Connecting to system interface...' }
+    { threshold: 0, text: 'Connecting to system interface...'       },
   ];
 
   const bootInterval = setInterval(() => {
-    progress += 10; // increase 10% every second
+    progress      += 10;
     remainingTime -= 1;
     bootProgressBar.style.width = `${progress}%`;
     bootTimer.textContent = `${remainingTime}s`;
 
     const status = statuses.find(s => remainingTime >= s.threshold);
-    if (status) {
-      bootStatusText.textContent = status.text;
-    }
+    if (status) bootStatusText.textContent = status.text;
 
-    if (remainingTime <= 0) {
-      clearInterval(bootInterval);
-    }
+    if (remainingTime <= 0) clearInterval(bootInterval);
   }, 1000);
 
-  // Trigger daemon launch in background
-  const resultPromise = window.api.startDaemon(options);
+  const result = await window.api.startDaemon(options);
 
-  // Let the background start complete
-  const result = await resultPromise;
-
-  // Stop interval and fast-forward loading bar to 100% on success
   clearInterval(bootInterval);
   bootProgressBar.style.width = '100%';
   bootTimer.textContent = '0s';
@@ -440,9 +488,8 @@ async function bootDaemon() {
 
   setTimeout(async () => {
     bootLoadingContainer.classList.add('hidden');
-    // Check status again immediately
     await checkSystemStatus();
-    btnBootSystem.disabled = false;
+    btnBootSystem.disabled  = false;
     btnStartDaemon.disabled = false;
 
     if (result && !result.success) {
@@ -457,25 +504,21 @@ async function stopDaemon() {
     daemonStatusDot.className = 'status-indicator pending';
     daemonStatusText.textContent = 'Stopping...';
     btnStopDaemon.disabled = true;
-    
+
     await window.api.stopDaemon();
     await checkSystemStatus();
   }
 }
 
-
-
 async function startAllServices() {
-  if (!daemonRunning) {
-    await bootDaemon();
-  }
+  if (!daemonRunning) await bootDaemon();
 }
 
-// --- Service Management Actions ---
+// ── Service Management ────────────────────────────────────────────────────────
 async function installService() {
   if (!btnInstallService) return;
   btnInstallService.disabled = true;
-  if (serviceStatusText) serviceStatusText.textContent = 'Installing services... (approve the UAC prompt)';
+  if (serviceStatusText) serviceStatusText.textContent = 'Installing... (approve the UAC prompt)';
   try {
     const result = await window.api.installWindowsService();
     if (result.success) {
@@ -513,8 +556,8 @@ async function uninstallService() {
 async function checkServiceStatus() {
   if (!serviceStatusText) return;
   try {
-    const status = await window.api.checkServiceInstalled();
-    const daemonOk  = status?.daemon  ?? status === true;
+    const status   = await window.api.checkServiceInstalled();
+    const daemonOk = status?.daemon ?? status === true;
 
     if (daemonOk) {
       serviceStatusText.textContent = '✅ Service installed & running 24/7';
@@ -532,7 +575,7 @@ async function checkServiceStatus() {
   }
 }
 
-// --- Focus Mode Actions ---
+// ── Focus Mode ────────────────────────────────────────────────────────────────
 async function startFocusMode() {
   if (!btnStartFocus) return;
   btnStartFocus.disabled = true;
@@ -571,89 +614,71 @@ async function stopFocusMode() {
   }
 }
 
-// Config Saving Actions
-async function saveToken() {
-  // NOTE: The sidecar token input was consolidated into the Advanced Settings
-  // modal (saved via saveSettings). This function is now a no-op shim kept
-  // for backwards compatibility. Token is managed via appConfig.token.
-  console.warn('[saveToken] Deprecated: token is now saved via Advanced Settings modal.');
-}
-
+// ── Settings Save ─────────────────────────────────────────────────────────────
 async function saveSettings() {
-  const bunPath = bunPathInput.value.trim();
+  const bunPath        = bunPathInput.value.trim();
   const autoStartDaemon = chkAutoDaemon.checked;
 
   if (!bunPath) {
-    alert('Bun path cannot be empty!');
+    showToast('Bun path cannot be empty!', 'warn');
     return;
   }
 
-  appConfig.bunPath = bunPath;
+  appConfig.bunPath        = bunPath;
   appConfig.autoStartDaemon = autoStartDaemon;
 
-  await window.api.saveConfig({
-    bunPath,
-    autoStartDaemon
-  });
-
-  appendLog('daemon', `[SYSTEM] Saved advanced configuration. Bun Path: ${bunPath}\n`);
+  await window.api.saveConfig({ bunPath, autoStartDaemon });
+  appendLog('daemon', `[SYSTEM] Saved settings. Bun Path: ${bunPath}\n`);
+  showToast('Settings saved!', 'success');
   settingsView.classList.add('hidden');
 }
 
-// Log view management
+// ── Log management ────────────────────────────────────────────────────────────
 function toggleLogsDrawer() {
   logsDrawer.classList.toggle('collapsed');
 }
 
 function clearActiveTerminal() {
-  if (activeTab === 'daemon-logs') {
-    daemonTerminal.textContent = '';
-  }
+  if (activeTab === 'daemon-logs') daemonTerminal.textContent = '';
 }
 
 function appendLog(source, text) {
   const terminal = daemonTerminal;
   if (!terminal) return;
 
-  // Clean raw control chars if any
-  const cleanedText = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-  
-  terminal.textContent += cleanedText;
-  
-  // Cap at 5000 lines to avoid crashing memory
+  // Strip ANSI escape codes
+  const clean = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  terminal.textContent += clean;
+
+  // Cap at 5000 lines
   const lines = terminal.textContent.split('\n');
   if (lines.length > 5000) {
     terminal.textContent = lines.slice(lines.length - 5000).join('\n');
   }
 
-  // Auto scroll to bottom
-  const tabContentContainer = terminal.parentElement;
-  tabContentContainer.scrollTop = tabContentContainer.scrollHeight;
+  // Auto-scroll
+  const container = terminal.parentElement;
+  container.scrollTop = container.scrollHeight;
 }
 
-// ── Voice Recognition ────────────────────────────────────────────────────────
+// ── Voice Recognition ─────────────────────────────────────────────────────────
 (function initVoice() {
-  // Defer until DOM ready
   window.addEventListener('DOMContentLoaded', () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const voiceBtn = document.getElementById('voice-btn');
+    const voiceBtn  = document.getElementById('voice-btn');
     const chatInput = document.getElementById('chat-input') || document.querySelector('textarea, input[type=text]');
 
     if (!SpeechRecognition || !voiceBtn) return;
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    const recognition    = new SpeechRecognition();
+    recognition.continuous     = false;
     recognition.interimResults = true;
-    recognition.lang = localStorage.getItem('soverign_voice_lang') || 'en-US';
+    recognition.lang           = localStorage.getItem('soverign_voice_lang') || 'en-US';
 
     let listening = false;
 
     voiceBtn.addEventListener('click', () => {
-      if (listening) {
-        recognition.stop();
-      } else {
-        recognition.start();
-      }
+      listening ? recognition.stop() : recognition.start();
     });
 
     recognition.onstart = () => {
@@ -663,9 +688,7 @@ function appendLog(source, text) {
     };
 
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map(r => r[0].transcript)
-        .join('');
+      const transcript = Array.from(event.results).map(r => r[0].transcript).join('');
       if (chatInput) chatInput.value = transcript;
     };
 
@@ -685,17 +708,15 @@ function appendLog(source, text) {
 // ── Text-to-Speech ────────────────────────────────────────────────────────────
 function speakText(text) {
   if (!window.speechSynthesis) return;
-  const ttsEnabled = localStorage.getItem('soverign_tts') === 'true';
-  if (!ttsEnabled) return;
+  if (localStorage.getItem('soverign_tts') !== 'true') return;
   window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
+  const utter     = new SpeechSynthesisUtterance(text);
   const voiceName = localStorage.getItem('soverign_tts_voice');
   if (voiceName) {
-    const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find(v => v.name === voiceName);
+    const voice = window.speechSynthesis.getVoices().find(v => v.name === voiceName);
     if (voice) utter.voice = voice;
   }
-  utter.rate = 1.0;
+  utter.rate  = 1.0;
   utter.pitch = 1.0;
   window.speechSynthesis.speak(utter);
 }
@@ -704,13 +725,12 @@ window.speakText = speakText;
 // ── Model Pool & Hardware Recommender ─────────────────────────────────────────
 async function initModelPool() {
   const hardwareInfo = document.getElementById('hardware-info');
-  const modelList = document.getElementById('model-list');
-  const searchInput = document.getElementById('model-search');
-  const refreshBtn = document.getElementById('refresh-pool-btn');
+  const modelList    = document.getElementById('model-list');
+  const searchInput  = document.getElementById('model-search');
+  const refreshBtn   = document.getElementById('refresh-pool-btn');
 
   if (!hardwareInfo || !modelList) return;
 
-  // Step 1: Scan hardware
   let specs = null;
   try {
     specs = await window.api.scanHardware();
@@ -721,15 +741,15 @@ async function initModelPool() {
     if (hardwareInfo) hardwareInfo.textContent = 'Hardware scan failed';
   }
 
-  // Step 2: Load compatible models
   let allModels = [];
+
   async function loadModels() {
     if (!modelList) return;
     modelList.innerHTML = '<div class="model-loading">Loading...</div>';
     try {
       const result = await window.api.getCompatibleModels(
         specs?.totalRamGb || 8,
-        specs?.gpuVramGb || 0
+        specs?.gpuVramGb  || 0
       );
       allModels = result.models || [];
       renderModels(allModels);
@@ -740,7 +760,7 @@ async function initModelPool() {
 
   function renderModels(models) {
     if (!modelList) return;
-    const query = (searchInput?.value || '').toLowerCase();
+    const query       = (searchInput?.value || '').toLowerCase();
     const activeFilter = document.querySelector('.pill.active')?.dataset.filter || 'all';
 
     const filtered = models.filter(m => {
@@ -750,7 +770,7 @@ async function initModelPool() {
       const matchFilter = activeFilter === 'all' ||
         (activeFilter === 'local' && m.is_local) ||
         (activeFilter === 'cloud' && !m.is_local) ||
-        (activeFilter === 'free' && tags.includes('free'));
+        (activeFilter === 'free'  && tags.includes('free'));
       return matchSearch && matchFilter;
     });
 
@@ -768,7 +788,7 @@ async function initModelPool() {
         <div class="model-card-meta">
           <span class="meta-pill">⚡ Speed ${m.speed_rank}</span>
           ${m.parameter_count ? `<span class="meta-pill">${m.parameter_count}B params</span>` : ''}
-          ${m.context_length ? `<span class="meta-pill">${(m.context_length/1000).toFixed(0)}K ctx</span>` : ''}
+          ${m.context_length  ? `<span class="meta-pill">${(m.context_length/1000).toFixed(0)}K ctx</span>` : ''}
           <span class="meta-pill">${m.min_ram}GB RAM</span>
         </div>
         <div class="model-card-actions">
@@ -784,11 +804,10 @@ async function initModelPool() {
     `).join('');
   }
 
-  // Refresh button
   if (refreshBtn) {
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.textContent = '↻ Refreshing...';
-      refreshBtn.disabled = true;
+      refreshBtn.disabled    = true;
       try {
         await window.api.refreshModelPool();
         showToast('Model pool refreshed!', 'success');
@@ -797,17 +816,13 @@ async function initModelPool() {
         showToast('Refresh failed: ' + e.message, 'error');
       } finally {
         refreshBtn.textContent = '↻ Refresh';
-        refreshBtn.disabled = false;
+        refreshBtn.disabled    = false;
       }
     });
   }
 
-  // Search filter
-  if (searchInput) {
-    searchInput.addEventListener('input', () => renderModels(allModels));
-  }
+  if (searchInput) searchInput.addEventListener('input', () => renderModels(allModels));
 
-  // Category pills
   document.querySelectorAll('.filter-pills .pill').forEach(pill => {
     pill.addEventListener('click', () => {
       document.querySelectorAll('.filter-pills .pill').forEach(p => p.classList.remove('active'));
@@ -819,12 +834,17 @@ async function initModelPool() {
   await loadModels();
 }
 
-window.downloadModel = async function(name, command) {
+// ── Global model helpers (called from inline HTML) ────────────────────────────
+window.downloadModel = async function(name) {
   showToast(`Starting download: ${name}`, 'info');
   try {
     const result = await window.api.pullModel(name);
-    if (result.success) showToast(`Download complete: ${name}`, 'success');
-    else showToast(`Download failed: ${result.error}`, 'error');
+    if (result.success) {
+      showToast(`Download complete: ${name}`, 'success');
+      refreshLocalModels();
+    } else {
+      showToast(`Download failed: ${result.error}`, 'error');
+    }
   } catch (e) {
     showToast(`Download error: ${e.message}`, 'error');
   }
@@ -833,16 +853,20 @@ window.downloadModel = async function(name, command) {
 window.activateModel = async function(name, provider) {
   showToast(`Activating ${name}...`, 'info');
   try {
-    await window.api.saveApiConfig({ provider: `${provider}-${provider === 'ollama' ? 'local' : 'cloud'}`, customModel: name });
+    const providerKey = provider === 'ollama' ? 'ollama-local' : `${provider}-cloud`;
+    await window.api.saveApiConfig({ provider: providerKey, customModel: name, apiKey: '' });
+    selModelProvider.value = providerKey;
+    customModelInput.value = name;
+    updateProviderFields();
     showToast(`Now using: ${name}`, 'success');
   } catch (e) {
     showToast('Failed to activate model', 'error');
   }
 };
 
-// Start application
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   init();
-  // Init model pool after 2s for daemon to start
+  // Init model pool after daemon has time to start
   setTimeout(initModelPool, 2000);
 });
