@@ -4,12 +4,20 @@
 
 Option Explicit
 
+On Error Resume Next
+
 Dim oShell, oFSO
 Set oShell = CreateObject("WScript.Shell")
 Set oFSO = CreateObject("Scripting.FileSystemObject")
 
+If Err.Number <> 0 Then
+    MsgBox "Failed to initialize Shell/FileSystem objects.", 16, "Soverign Error"
+    WScript.Quit 1
+End If
+
+' Dynamically resolve root path from script location to prevent hardcoded typos
 Dim sRoot
-sRoot = "D:\Soverign"
+sRoot = oFSO.GetParentFolderName(WScript.ScriptFullName)
 
 Dim sCoreDir
 sCoreDir = sRoot & "\soverign-core"
@@ -35,15 +43,16 @@ End If
 Dim bDaemonRunning
 bDaemonRunning = False
 
-Dim oNet
-Set oNet = CreateObject("WScript.Network")
-
-' Use PowerShell to check port
+' PowerShell port check (reliable TCP Client check)
 Dim sCheckCmd
 sCheckCmd = "powershell -NoProfile -WindowStyle Hidden -Command """ & _
-    "$t=New-Object System.Net.Sockets.TcpClient;" & _
-    "try{$t.ConnectAsync('127.0.0.1',3142).Wait(500)|Out-Null;" & _
-    "if($t.Connected){$t.Close();exit 0}else{exit 1}}catch{exit 1}" & """"
+    "$t = New-Object System.Net.Sockets.TcpClient; " & _
+    "try { " & _
+    "  $c = $t.ConnectAsync('127.0.0.1', 3142); " & _
+    "  if ($c.Wait(1000) -and $t.Connected) { " & _
+    "    $t.Close(); exit 0; " & _
+    "  } " & _
+    "} catch {} exit 1;"""
 
 Dim nResult
 nResult = oShell.Run(sCheckCmd, 0, True)
@@ -51,8 +60,22 @@ bDaemonRunning = (nResult = 0)
 
 ' Start daemon if not running
 If Not bDaemonRunning Then
+    ' Check if bun is installed/available
+    Dim nBunCheck
+    nBunCheck = oShell.Run("cmd /c where bun", 0, True)
+    If nBunCheck <> 0 Then
+        ' Attempt to find bun in user profile fallback
+        Dim sUserBun
+        sUserBun = oShell.ExpandEnvironmentStrings("%USERPROFILE%") & "\.bun\bin\bun.exe"
+        If Not oFSO.FileExists(sUserBun) Then
+            MsgBox "Bun is not installed or not in PATH." & Chr(10) & _
+                   "Please install Bun from https://bun.sh", 16, "Soverign Error"
+            WScript.Quit 1
+        End If
+    End If
+
     Dim sDaemonCmd
-    sDaemonCmd = "cmd /c ""cd /d """ & sCoreDir & """ && bun run src\daemon\index.ts >> """ & sLogFile & """ 2>&1"""
+    sDaemonCmd = "cmd.exe /c cd /d """ & sCoreDir & """ && bun run src\daemon\index.ts >> """ & sLogFile & """ 2>&1"
     oShell.Run sDaemonCmd, 0, False  ' 0 = hidden, False = don't wait
     
     ' Wait up to 30 seconds for daemon to start

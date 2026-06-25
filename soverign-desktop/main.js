@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execSync } = require('child_process');
 const net = require('net');
 
 let mainWindow;
@@ -20,12 +20,7 @@ const projectRoot = path.join(__dirname, '..');
 const coreDir = path.join(projectRoot, 'soverign-core');
 const daemonScript  = path.join(coreDir, 'src', 'daemon',  'index.ts');
 
-// Windows Task Scheduler task names — these are the 24/7 background
-// processes. They are installed once via scripts/install-windows-tasks.ps1
-// and from then on run independently of this Electron app (survive app
-// close, survive logoff/restart if "Run whether user is logged on or not"
-// is configured, and auto-restart on crash). No Docker, no WSL, no cloud,
-// no internet required — pure native Windows Task Scheduler.
+// Windows Task Scheduler task name
 const DAEMON_TASK = 'SoverignService';
 
 // Default config
@@ -44,7 +39,11 @@ if (fs.existsSync(configPath)) {
 }
 
 function saveConfig() {
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to save config:', e);
+  }
 }
 
 function createWindow() {
@@ -78,10 +77,29 @@ function createWindow() {
 }
 
 function cleanupProcesses() {
-  // Only stop things that belong to THIS Electron process (the local log
-  // tail helper). The daemon is owned by Windows Task
-  // Scheduler now, so it keeps running 24/7 even after this window closes.
   stopLogTail();
+  
+  // Kill direct daemon process if it was started locally
+  if (daemonDirectProcess) {
+    try {
+      if (daemonDirectProcess.pid) {
+        execSync(`taskkill /pid ${daemonDirectProcess.pid} /T /F`, { timeout: 1000 });
+      }
+    } catch (e) {
+      console.warn('Failed to kill daemon process on cleanup:', e.message);
+    }
+    daemonDirectProcess = null;
+  }
+
+  // Kill watchdog if running
+  if (watchdogProcess) {
+    try {
+      if (watchdogProcess.pid) {
+        execSync(`taskkill /pid ${watchdogProcess.pid} /T /F`, { timeout: 1000 });
+      }
+    } catch (e) {}
+    watchdogProcess = null;
+  }
 }
 
 // Check if Soverign Daemon port (3142) is active
@@ -104,7 +122,7 @@ function checkDaemonPort() {
 
 // Log streaming helper
 function sendLog(source, data) {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('log-data', { source, text: data.toString() });
   }
 }
@@ -144,13 +162,17 @@ function startLogTail() {
 function stopLogTail() {
   if (logTailProcess) {
     try {
-      exec(`taskkill /pid ${logTailProcess.pid} /T /F`);
-    } catch (e) {}
+      if (logTailProcess.pid) {
+        execSync(`taskkill /pid ${logTailProcess.pid} /T /F`, { timeout: 1000 });
+      }
+    } catch (e) {
+      console.warn('Failed to kill log tail process:', e.message);
+    }
     logTailProcess = null;
   }
 }
 
-// Read/write Windows-native config.yaml
+// Read/write Soverign config.yaml
 function readSoverignConfig() {
   try {
     if (fs.existsSync(soverignConfigYaml)) {
@@ -175,13 +197,100 @@ function writeSoverignConfig(content) {
   }
 }
 
+// Robust YAML updater for the llm: block (avoids fragile regex replacements)
+function updateLlmInYaml(currentYaml, defaultModel, providerDetails) {
+  const lines = currentYaml.split(/\r?\n/);
+  const result = [];
+  let inLlm = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    if (line.startsWith('llm:')) {
+      inLlm = true;
+      continue;
+    }
+    
+    if (inLlm) {
+      // The llm block ends when we encounter a line that:
+      // - Is not empty
+      // - Does not start with space or tab
+      if (line.length > 0 && !line.startsWith(' ') && !line.startsWith('\t')) {
+        inLlm = false;
+      } else {
+        continue;
+      }
+    }
+    
+    result.push(line);
+  }
+  
+  // Format the new block
+  const newLlmBlock = `llm:\n  default: "${defaultModel}"\n  providers:\n${providerDetails}\n  tiers: {}`;
+  
+  return result.join('\n').trim() + '\n\n' + newLlmBlock + '\n';
+}
+
+// Node version compatible fetch implementation
+function safeFetch(url, options = {}) {
+  if (typeof fetch === 'function') {
+    return fetch(url, options);
+  }
+  
+  // Fallback using Node's native http module
+  const http = require('http');
+  const { URL } = require('url');
+  
+  return new Promise((resolve, reject) => {
+    try {
+      const parsedUrl = new URL(url);
+      const reqOptions = {
+        method: options.method || 'GET',
+        headers: options.headers || {},
+        timeout: options.signal?.timeout || 10000
+      };
+      
+      const req = http.request(url, reqOptions, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            json: async () => JSON.parse(data),
+            text: async () => data
+          });
+        });
+      });
+      
+      req.on('error', (err) => reject(err));
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
+      
+      if (options.body) {
+        req.write(options.body);
+      }
+      req.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 // ─── Windows Task Scheduler helpers ────────────────────────────────────────
 
-// Run a schtasks.exe command and capture output without throwing.
+// Run a schtasks.exe command and capture output safely
 function runSchtasks(args) {
   return new Promise((resolve) => {
     exec(`schtasks ${args}`, (err, stdout, stderr) => {
-      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ 
+        ok: !err, 
+        stdout: stdout || '', 
+        stderr: stderr || '',
+        success: err === null 
+      });
     });
   });
 }
@@ -198,8 +307,7 @@ async function getTaskStatus(taskName) {
   return match ? match[1].trim() : 'Unknown';
 }
 
-// Launch a .ps1 script elevated (UAC prompt) without fragile shell-quoting.
-// Returns once the elevated script has finished (-Wait).
+// Launch a .ps1 script elevated (UAC prompt) safely
 function runElevatedPowerShellScript(scriptPath, extraArgs = []) {
   return new Promise((resolve) => {
     const argList = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...extraArgs];
@@ -304,7 +412,11 @@ ipcMain.handle('start-daemon', async () => {
   if (registered) {
     // ── Path A: Task Scheduler (24/7 mode) ──────────────────────────────
     sendLog('daemon', '[SYSTEM] Starting Soverign Daemon (via Windows Task Scheduler)...\n');
-    await runSchtasks(`/run /tn "${DAEMON_TASK}"`);
+    const startResult = await runSchtasks(`/run /tn "${DAEMON_TASK}"`);
+    if (!startResult.ok) {
+      sendLog('daemon', `[ERROR] Failed to start scheduled task: ${startResult.stderr}\n`);
+      return { success: false, error: startResult.stderr };
+    }
   } else {
     // ── Path B: Direct bun spawn (no task installed) ─────────────────────
     sendLog('daemon', '[SYSTEM] Task Scheduler service not installed — launching daemon directly...\n');
@@ -367,7 +479,11 @@ ipcMain.handle('stop-daemon', async () => {
 
   // Stop direct process if running
   if (daemonDirectProcess) {
-    try { exec(`taskkill /pid ${daemonDirectProcess.pid} /T /F`); } catch (e) {}
+    try {
+      if (daemonDirectProcess.pid) {
+        execSync(`taskkill /pid ${daemonDirectProcess.pid} /T /F`, { timeout: 1000 });
+      }
+    } catch (e) {}
     daemonDirectProcess = null;
   }
 
@@ -379,8 +495,6 @@ ipcMain.handle('stop-daemon', async () => {
 
   return { success: true };
 });
-
-
 
 // Pull a model via Ollama (native)
 ipcMain.handle('pull-model', (event, modelName) => {
@@ -412,7 +526,7 @@ ipcMain.handle('pull-model', (event, modelName) => {
 ipcMain.handle('list-local-models', () => {
   return new Promise((resolve) => {
     exec('ollama list', (err, stdout) => {
-      if (err) return resolve({ success: false, models: [] });
+      if (err) return resolve({ success: false, error: err.message, models: [] });
       const lines = stdout.trim().split('\n').slice(1); // skip header
       const models = lines
         .filter(l => l.trim())
@@ -535,7 +649,6 @@ ipcMain.handle('save-api-config', async (event, data) => {
   let providerDetails = '';
 
   if (provider === 'ollama-local') {
-    // Use 1.5B by default — user can override with custom model
     const model = customModel || 'qwen2.5:1.5b';
     defaultModel = `ollama:${model}`;
     providerDetails = `    ollama:\n      kind: ollama\n      base_url: "http://127.0.0.1:11434"`;
@@ -559,16 +672,7 @@ ipcMain.handle('save-api-config', async (event, data) => {
     providerDetails = `    nvidia:\n      api_key: "${apiKey}"`;
   }
 
-  const newLlmBlock = `llm:\n  default: "${defaultModel}"\n  providers:\n${providerDetails}\n  tiers: {}\n`;
-
-  let updatedYaml;
-  if (/^([ \t]*)llm:/m.test(currentYaml)) {
-    updatedYaml = currentYaml.replace(/^([ \t]*)llm:[\s\S]*?(?=^[ \t]*\w+:|$)/m, newLlmBlock);
-  } else {
-    // Append if no llm block
-    updatedYaml = currentYaml.trim() + '\n\n' + newLlmBlock;
-  }
-
+  const updatedYaml = updateLlmInYaml(currentYaml, defaultModel, providerDetails);
   const ok = writeSoverignConfig(updatedYaml);
   if (ok) {
     sendLog('daemon', `[SYSTEM] Config updated! Soverign will use "${defaultModel}"\n`);
@@ -611,9 +715,9 @@ ipcMain.handle('get-api-config', () => {
 // Get hardware-compatible models from the daemon DB via HTTP
 ipcMain.handle('get-compatible-models', async (event, ramGb, vramGb) => {
   try {
-    const response = await fetch(
+    const response = await safeFetch(
       `http://127.0.0.1:3142/api/models/compatible?ram=${ramGb || 8}&vram=${vramGb || 0}`,
-      { signal: AbortSignal.timeout(5000) }
+      { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined }
     );
     if (!response.ok) return { success: false, models: [] };
     const data = await response.json();
@@ -626,9 +730,9 @@ ipcMain.handle('get-compatible-models', async (event, ramGb, vramGb) => {
 // Trigger model pool refresh via daemon API
 ipcMain.handle('refresh-model-pool', async () => {
   try {
-    const response = await fetch('http://127.0.0.1:3142/api/models/refresh', {
+    const response = await safeFetch('http://127.0.0.1:3142/api/models/refresh', {
       method: 'POST',
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
     });
     if (!response.ok) return { success: false };
     return { success: true };
@@ -637,12 +741,7 @@ ipcMain.handle('refresh-model-pool', async () => {
   }
 });
 
-
-
 // ─── Watchdog ───────────────────────────────────────────────────────────────
-// NOTE: now that Task Scheduler's own "restart on failure" handles crash
-// recovery for the daemon/sidecar, this custom watchdog is mostly a backup.
-// Left untouched / optional.
 
 ipcMain.handle('start-watchdog', () => {
   if (watchdogProcess) return { success: false, error: 'Watchdog already running' };
@@ -661,10 +760,10 @@ ipcMain.handle('start-watchdog', () => {
   watchdogProcess.on('close', (code) => {
     sendLog('daemon', `[WATCHDOG] Stopped (code ${code})\n`);
     watchdogProcess = null;
-    if (mainWindow) mainWindow.webContents.send('watchdog-status-changed', false);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('watchdog-status-changed', false);
   });
   watchdogProcess.stdout?.on('data', (d) => sendLog('daemon', `[WATCHDOG] ${d}`));
-  if (mainWindow) mainWindow.webContents.send('watchdog-status-changed', true);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('watchdog-status-changed', true);
   sendLog('daemon', '[WATCHDOG] Watchdog started.\n');
   return { success: true };
 });
@@ -672,10 +771,12 @@ ipcMain.handle('start-watchdog', () => {
 ipcMain.handle('stop-watchdog', () => {
   if (!watchdogProcess) return { success: false };
   try {
-    exec(`taskkill /pid ${watchdogProcess.pid} /T /F`);
+    if (watchdogProcess.pid) {
+      execSync(`taskkill /pid ${watchdogProcess.pid} /T /F`, { timeout: 1000 });
+    }
   } catch (e) {}
   watchdogProcess = null;
-  if (mainWindow) mainWindow.webContents.send('watchdog-status-changed', false);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('watchdog-status-changed', false);
   sendLog('daemon', '[WATCHDOG] Watchdog stopped.\n');
   return { success: true };
 });
@@ -693,16 +794,12 @@ ipcMain.handle('health-check', async () => {
 });
 
 // ─── Focus Mode ─────────────────────────────────────────────────────────────
-// Uses PowerShell to lower/restore process priorities.
-// Excludes critical system and Soverign processes.
-// Returns the count of processes affected.
 
 const FOCUS_EXCLUDE = 'bun|soverign|ollama|electron|System|Idle|svchost|explorer|csrss|lsass|wininit|services|smss|winlogon|dwm|audiodg|fontdrvhost';
 
 ipcMain.handle('start-focus-mode', () => {
   return new Promise((resolve) => {
     sendLog('daemon', '[SYSTEM] Focus Mode ON — lowering priority of background processes...\n');
-    // Script: collect matching processes, set BelowNormal, output count as JSON
     const ps = [
       `$exclude = '${FOCUS_EXCLUDE}'`,
       `$procs = Get-Process | Where-Object {`,
@@ -752,6 +849,14 @@ ipcMain.handle('stop-focus-mode', () => {
   });
 });
 
+// ─── Global Error Handling ──────────────────────────────────────────────────
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception in Main Process:', error);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection in Main Process at:', promise, 'reason:', reason);
+});
+
 // ─── App lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -764,4 +869,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  cleanupProcesses();
 });

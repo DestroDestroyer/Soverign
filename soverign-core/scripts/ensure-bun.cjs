@@ -6,12 +6,6 @@ const os = require('os');
 
 if (process.platform === 'win32') {
   console.log('Running on Windows. Bypassing WSL/Docker block to allow native JARVIS daemon installation.');
-  try {
-    execSync('bun --version', { stdio: 'ignore' });
-  } catch {
-    console.error('Bun runtime not found. Please install Bun on Windows (https://bun.sh) and try again.');
-    process.exit(1);
-  }
 }
 
 try {

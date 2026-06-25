@@ -69,6 +69,7 @@
     "codemirror": "^6.0.2",
     "discord.js": "^14.25.1",
     "edge-tts-universal": "^1.4.0",
+    "electron": "^42.5.0",
     "fuse.js": "^7.3.0",
     "highlight.js": "^11.11.1",
     "jose": "^6.2.0",
@@ -85,6 +86,7 @@
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
     "tailwindcss": "^4.2.1",
+    "windows-service": "^1.1.0",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

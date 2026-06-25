@@ -12,11 +12,24 @@ function showToast(message, type = 'info') {
   toast.innerHTML = `
     <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warn' ? '⚠' : 'ℹ'}</span>
     <span class="toast-msg">${message}</span>
-    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    <button class="toast-close">×</button>
   `;
   container.appendChild(toast);
+  
   const delay = type === 'error' || type === 'warn' ? 5000 : 3000;
-  setTimeout(() => toast.remove(), delay);
+  const timeoutId = setTimeout(() => {
+    if (toast.parentNode) {
+      toast.remove();
+    }
+  }, delay);
+
+  const closeBtn = toast.querySelector('.toast-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      clearTimeout(timeoutId);
+      toast.remove();
+    });
+  }
 }
 window.showToast = showToast;
 
@@ -118,14 +131,14 @@ async function init() {
   appConfig = await window.api.getConfig();
 
   // Populate advanced settings
-  bunPathInput.value    = appConfig.bunPath || 'bun';
-  chkAutoDaemon.checked = appConfig.autoStartDaemon !== false;
+  if (bunPathInput) bunPathInput.value    = appConfig.bunPath || 'bun';
+  if (chkAutoDaemon) chkAutoDaemon.checked = appConfig.autoStartDaemon !== false;
 
   // Populate API configuration
   const apiConfig = await window.api.getApiConfig();
-  selModelProvider.value = apiConfig.provider;
-  apiKeyInput.value      = apiConfig.apiKey;
-  customModelInput.value = apiConfig.customModel;
+  if (selModelProvider) selModelProvider.value = apiConfig.provider;
+  if (apiKeyInput) apiKeyInput.value      = apiConfig.apiKey;
+  if (customModelInput) customModelInput.value = apiConfig.customModel;
   updateProviderFields();
 
   setupEventListeners();
@@ -137,7 +150,7 @@ async function init() {
 
   // Initial status checks
   await checkSystemStatus();
-  if (typeof checkServiceStatus === 'function') await checkServiceStatus();
+  await checkServiceStatus();
 
   // Load local Ollama models
   refreshLocalModels();
@@ -154,40 +167,45 @@ async function init() {
 // ── Event Listeners ───────────────────────────────────────────────────────────
 function setupEventListeners() {
   // Daemon controls
-  btnStartDaemon.addEventListener('click', bootDaemon);
-  btnBootSystem.addEventListener('click', bootDaemon);
-  btnStopDaemon.addEventListener('click', stopDaemon);
+  if (btnStartDaemon) btnStartDaemon.addEventListener('click', bootDaemon);
+  if (btnBootSystem) btnBootSystem.addEventListener('click', bootDaemon);
+  if (btnStopDaemon) btnStopDaemon.addEventListener('click', stopDaemon);
 
   // API Config
-  selModelProvider.addEventListener('change', updateProviderFields);
-  btnSaveApiConfig.addEventListener('click', saveApiConfig);
-  btnToggleKeyVisibility.addEventListener('click', toggleKeyVisibility);
+  if (selModelProvider) selModelProvider.addEventListener('change', updateProviderFields);
+  if (btnSaveApiConfig) btnSaveApiConfig.addEventListener('click', saveApiConfig);
+  if (btnToggleKeyVisibility) btnToggleKeyVisibility.addEventListener('click', toggleKeyVisibility);
 
   // Model Manager
-  btnPullModel.addEventListener('click', pullModel);
+  if (btnPullModel) btnPullModel.addEventListener('click', pullModel);
   if (btnRefreshLocalModels) btnRefreshLocalModels.addEventListener('click', refreshLocalModels);
 
   // Claude Code
-  btnLaunchClaudeWin.addEventListener('click', () => window.api.launchClaudeWin());
+  if (btnLaunchClaudeWin) btnLaunchClaudeWin.addEventListener('click', () => window.api.launchClaudeWin());
 
   // Hardware scan
   const btnScanHardware = document.getElementById('btn-scan-hardware');
   if (btnScanHardware) btnScanHardware.addEventListener('click', scanHardware);
 
   // Layout
-  btnStartAll.addEventListener('click', startAllServices);
-  btnReloadWebview.addEventListener('click', () => {
-    if (daemonRunning) {
-      appendLog('daemon', '[SYSTEM] Reloading Soverign Interface...\n');
-      soverignWebview.reload();
-    }
-  });
-  btnToggleLogs.addEventListener('click', toggleLogsDrawer);
-  btnToggleSidebar.addEventListener('click', () => {
-    document.querySelector('.app-container').classList.toggle('sidebar-collapsed');
-  });
-  btnCloseLogs.addEventListener('click', () => logsDrawer.classList.add('collapsed'));
-  btnClearLogs.addEventListener('click', clearActiveTerminal);
+  if (btnStartAll) btnStartAll.addEventListener('click', startAllServices);
+  if (btnReloadWebview) {
+    btnReloadWebview.addEventListener('click', () => {
+      if (daemonRunning && soverignWebview) {
+        appendLog('daemon', '[SYSTEM] Reloading Soverign Interface...\n');
+        soverignWebview.reload();
+      }
+    });
+  }
+  if (btnToggleLogs) btnToggleLogs.addEventListener('click', toggleLogsDrawer);
+  if (btnToggleSidebar) {
+    btnToggleSidebar.addEventListener('click', () => {
+      const container = document.querySelector('.app-container');
+      if (container) container.classList.toggle('sidebar-collapsed');
+    });
+  }
+  if (btnCloseLogs && logsDrawer) btnCloseLogs.addEventListener('click', () => logsDrawer.classList.add('collapsed'));
+  if (btnClearLogs) btnClearLogs.addEventListener('click', clearActiveTerminal);
 
   // Drawer tab switching
   drawerTabs.forEach(tab => {
@@ -196,20 +214,25 @@ function setupEventListeners() {
       tabContents.forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
       activeTab = tab.getAttribute('data-tab');
-      document.getElementById(activeTab).classList.add('active');
+      const targetContent = document.getElementById(activeTab);
+      if (targetContent) targetContent.classList.add('active');
     });
   });
 
   // Settings modal
-  btnSettings.addEventListener('click', async () => {
-    settingsView.classList.remove('hidden');
-    if (typeof checkServiceStatus === 'function') await checkServiceStatus();
-  });
-  btnCloseSettings.addEventListener('click', () => settingsView.classList.add('hidden'));
-  btnSaveSettings.addEventListener('click', saveSettings);
-  settingsView.addEventListener('click', (e) => {
-    if (e.target === settingsView) settingsView.classList.add('hidden');
-  });
+  if (btnSettings) {
+    btnSettings.addEventListener('click', async () => {
+      if (settingsView) settingsView.classList.remove('hidden');
+      await checkServiceStatus();
+    });
+  }
+  if (btnCloseSettings && settingsView) btnCloseSettings.addEventListener('click', () => settingsView.classList.add('hidden'));
+  if (btnSaveSettings) btnSaveSettings.addEventListener('click', saveSettings);
+  if (settingsView) {
+    settingsView.addEventListener('click', (e) => {
+      if (e.target === settingsView) settingsView.classList.add('hidden');
+    });
+  }
 
   // Service installer
   if (btnInstallService)   btnInstallService.addEventListener('click', installService);
@@ -222,20 +245,24 @@ function setupEventListeners() {
 
 // ── Provider field visibility ─────────────────────────────────────────────────
 function updateProviderFields() {
+  if (!selModelProvider) return;
   const provider = selModelProvider.value;
   const cfg = PROVIDER_DEFAULTS[provider] || { needsKey: true, placeholder: '' };
 
-  if (cfg.needsKey) {
-    apiKeyContainer.classList.remove('hidden');
-  } else {
-    apiKeyContainer.classList.add('hidden');
+  if (apiKeyContainer) {
+    if (cfg.needsKey) {
+      apiKeyContainer.classList.remove('hidden');
+    } else {
+      apiKeyContainer.classList.add('hidden');
+    }
   }
-  customModelContainer.classList.remove('hidden');
-  customModelInput.placeholder = cfg.placeholder;
+  if (customModelContainer) customModelContainer.classList.remove('hidden');
+  if (customModelInput) customModelInput.placeholder = cfg.placeholder;
 }
 
 // ── API Key visibility toggle ─────────────────────────────────────────────────
 function toggleKeyVisibility() {
+  if (!apiKeyInput || !btnToggleKeyVisibility) return;
   if (apiKeyInput.type === 'password') {
     apiKeyInput.type = 'text';
     btnToggleKeyVisibility.textContent = '🔒';
@@ -247,6 +274,7 @@ function toggleKeyVisibility() {
 
 // ── Save API configuration ────────────────────────────────────────────────────
 async function saveApiConfig() {
+  if (!selModelProvider || !apiKeyInput || !customModelInput || !btnSaveApiConfig) return;
   const provider    = selModelProvider.value;
   const apiKey      = apiKeyInput.value.trim();
   const customModel = customModelInput.value.trim();
@@ -274,6 +302,7 @@ async function saveApiConfig() {
 
 // ── Pull local models ─────────────────────────────────────────────────────────
 async function pullModel() {
+  if (!txtPullModel || !btnPullModel || !logsDrawer) return;
   const modelName = txtPullModel.value.trim();
   if (!modelName) {
     showToast('Please enter a valid model name (e.g. phi3, mistral).', 'warn');
@@ -358,7 +387,7 @@ async function scanHardware() {
     // Auto-fill the model input
     if (customModelInput) {
       customModelInput.value = specs.recommended;
-      selModelProvider.value = 'ollama-local';
+      if (selModelProvider) selModelProvider.value = 'ollama-local';
       updateProviderFields();
     }
   } catch (err) {
@@ -389,34 +418,35 @@ async function checkSystemStatus() {
   }
 }
 
+// ── Update Daemon UI elements safely ──────────────────────────────────────────
 function updateDaemonUI(isRunning) {
   daemonRunning = isRunning;
   document.body.classList.toggle('soverign-activated', isRunning);
 
   if (isRunning) {
-    daemonStatusDot.className = 'status-indicator running';
-    daemonStatusText.textContent = 'Online (Port 3142)';
-    btnStartDaemon.disabled = true;
-    btnStopDaemon.disabled  = false;
+    if (daemonStatusDot) daemonStatusDot.className = 'status-indicator running';
+    if (daemonStatusText) daemonStatusText.textContent = 'Online (Port 3142)';
+    if (btnStartDaemon) btnStartDaemon.disabled = true;
+    if (btnStopDaemon) btnStopDaemon.disabled  = false;
 
-    splashView.classList.add('hidden');
-    dashboardView.classList.remove('hidden');
+    if (splashView) splashView.classList.add('hidden');
+    if (dashboardView) dashboardView.classList.remove('hidden');
 
-    if (!webviewLoaded) {
+    if (!webviewLoaded && soverignWebview) {
       appendLog('daemon', '[SYSTEM] Directing interface view to http://localhost:3142\n');
       soverignWebview.src = 'http://localhost:3142';
       webviewLoaded = true;
     }
   } else {
-    daemonStatusDot.className = 'status-indicator stopped';
-    daemonStatusText.textContent = 'Offline';
-    btnStartDaemon.disabled = false;
-    btnStopDaemon.disabled  = true;
+    if (daemonStatusDot) daemonStatusDot.className = 'status-indicator stopped';
+    if (daemonStatusText) daemonStatusText.textContent = 'Offline';
+    if (btnStartDaemon) btnStartDaemon.disabled = false;
+    if (btnStopDaemon) btnStopDaemon.disabled  = true;
 
-    splashView.classList.remove('hidden');
-    dashboardView.classList.add('hidden');
+    if (splashView) splashView.classList.remove('hidden');
+    if (dashboardView) dashboardView.classList.add('hidden');
 
-    if (webviewLoaded) {
+    if (webviewLoaded && soverignWebview) {
       soverignWebview.src = 'about:blank';
       webviewLoaded = false;
     }
@@ -441,23 +471,23 @@ function updateHealthUI(health) {
 
 // ── Daemon Actions ────────────────────────────────────────────────────────────
 async function bootDaemon() {
-  daemonStatusDot.className = 'status-indicator pending';
-  daemonStatusText.textContent = 'Booting...';
-  btnStartDaemon.disabled = true;
-  btnBootSystem.disabled  = true;
+  if (daemonStatusDot) daemonStatusDot.className = 'status-indicator pending';
+  if (daemonStatusText) daemonStatusText.textContent = 'Booting...';
+  if (btnStartDaemon) btnStartDaemon.disabled = true;
+  if (btnBootSystem) btnBootSystem.disabled  = true;
 
-  bootLoadingContainer.classList.remove('hidden');
-  logsDrawer.classList.remove('collapsed');
+  if (bootLoadingContainer) bootLoadingContainer.classList.remove('hidden');
+  if (logsDrawer) logsDrawer.classList.remove('collapsed');
 
   const options = {
-    useQwen:     chkUseQwen.checked,
-    autoCorrect: chkAutoCorrect.checked
+    useQwen:     chkUseQwen ? chkUseQwen.checked : true,
+    autoCorrect: chkAutoCorrect ? chkAutoCorrect.checked : true
   };
 
   let progress      = 0;
   let remainingTime = 10;
-  bootProgressBar.style.width = '0%';
-  bootTimer.textContent = '10s';
+  if (bootProgressBar) bootProgressBar.style.width = '0%';
+  if (bootTimer) bootTimer.textContent = '10s';
 
   const statuses = [
     { threshold: 8, text: 'Initializing Soverign environment...'    },
@@ -470,11 +500,11 @@ async function bootDaemon() {
   const bootInterval = setInterval(() => {
     progress      += 10;
     remainingTime -= 1;
-    bootProgressBar.style.width = `${progress}%`;
-    bootTimer.textContent = `${remainingTime}s`;
+    if (bootProgressBar) bootProgressBar.style.width = `${progress}%`;
+    if (bootTimer) bootTimer.textContent = `${remainingTime}s`;
 
     const status = statuses.find(s => remainingTime >= s.threshold);
-    if (status) bootStatusText.textContent = status.text;
+    if (status && bootStatusText) bootStatusText.textContent = status.text;
 
     if (remainingTime <= 0) clearInterval(bootInterval);
   }, 1000);
@@ -482,28 +512,28 @@ async function bootDaemon() {
   const result = await window.api.startDaemon(options);
 
   clearInterval(bootInterval);
-  bootProgressBar.style.width = '100%';
-  bootTimer.textContent = '0s';
-  bootStatusText.textContent = 'Soverign is Ready!';
+  if (bootProgressBar) bootProgressBar.style.width = '100%';
+  if (bootTimer) bootTimer.textContent = '0s';
+  if (bootStatusText) bootStatusText.textContent = 'Soverign is Ready!';
 
   setTimeout(async () => {
-    bootLoadingContainer.classList.add('hidden');
+    if (bootLoadingContainer) bootLoadingContainer.classList.add('hidden');
     await checkSystemStatus();
-    btnBootSystem.disabled  = false;
-    btnStartDaemon.disabled = false;
+    if (btnBootSystem) btnBootSystem.disabled  = false;
+    if (btnStartDaemon) btnStartDaemon.disabled = false;
 
     if (result && !result.success) {
       showToast(`Daemon failed to start: ${result.error || 'Unknown error'}`, 'error');
-      logsDrawer.classList.remove('collapsed');
+      if (logsDrawer) logsDrawer.classList.remove('collapsed');
     }
   }, 800);
 }
 
 async function stopDaemon() {
   if (confirm('Are you sure you want to shut down the Soverign daemon?')) {
-    daemonStatusDot.className = 'status-indicator pending';
-    daemonStatusText.textContent = 'Stopping...';
-    btnStopDaemon.disabled = true;
+    if (daemonStatusDot) daemonStatusDot.className = 'status-indicator pending';
+    if (daemonStatusText) daemonStatusText.textContent = 'Stopping...';
+    if (btnStopDaemon) btnStopDaemon.disabled = true;
 
     await window.api.stopDaemon();
     await checkSystemStatus();
@@ -616,6 +646,7 @@ async function stopFocusMode() {
 
 // ── Settings Save ─────────────────────────────────────────────────────────────
 async function saveSettings() {
+  if (!bunPathInput || !chkAutoDaemon || !settingsView) return;
   const bunPath        = bunPathInput.value.trim();
   const autoStartDaemon = chkAutoDaemon.checked;
 
@@ -624,8 +655,10 @@ async function saveSettings() {
     return;
   }
 
-  appConfig.bunPath        = bunPath;
-  appConfig.autoStartDaemon = autoStartDaemon;
+  if (appConfig) {
+    appConfig.bunPath        = bunPath;
+    appConfig.autoStartDaemon = autoStartDaemon;
+  }
 
   await window.api.saveConfig({ bunPath, autoStartDaemon });
   appendLog('daemon', `[SYSTEM] Saved settings. Bun Path: ${bunPath}\n`);
@@ -635,11 +668,11 @@ async function saveSettings() {
 
 // ── Log management ────────────────────────────────────────────────────────────
 function toggleLogsDrawer() {
-  logsDrawer.classList.toggle('collapsed');
+  if (logsDrawer) logsDrawer.classList.toggle('collapsed');
 }
 
 function clearActiveTerminal() {
-  if (activeTab === 'daemon-logs') daemonTerminal.textContent = '';
+  if (activeTab === 'daemon-logs' && daemonTerminal) daemonTerminal.textContent = '';
 }
 
 function appendLog(source, text) {
@@ -658,7 +691,7 @@ function appendLog(source, text) {
 
   // Auto-scroll
   const container = terminal.parentElement;
-  container.scrollTop = container.scrollHeight;
+  if (container) container.scrollTop = container.scrollHeight;
 }
 
 // ── Voice Recognition ─────────────────────────────────────────────────────────
@@ -835,12 +868,16 @@ async function initModelPool() {
 }
 
 // ── Global model helpers (called from inline HTML) ────────────────────────────
-window.downloadModel = async function(name) {
-  showToast(`Starting download: ${name}`, 'info');
+window.downloadModel = async function(name, downloadCommand) {
+  const modelToPull = downloadCommand && downloadCommand.startsWith('ollama run ')
+    ? downloadCommand.replace('ollama run ', '')
+    : name;
+
+  showToast(`Starting download: ${modelToPull}`, 'info');
   try {
-    const result = await window.api.pullModel(name);
+    const result = await window.api.pullModel(modelToPull);
     if (result.success) {
-      showToast(`Download complete: ${name}`, 'success');
+      showToast(`Download complete: ${modelToPull}`, 'success');
       refreshLocalModels();
     } else {
       showToast(`Download failed: ${result.error}`, 'error');
@@ -855,14 +892,25 @@ window.activateModel = async function(name, provider) {
   try {
     const providerKey = provider === 'ollama' ? 'ollama-local' : `${provider}-cloud`;
     await window.api.saveApiConfig({ provider: providerKey, customModel: name, apiKey: '' });
-    selModelProvider.value = providerKey;
-    customModelInput.value = name;
+    if (selModelProvider) selModelProvider.value = providerKey;
+    if (customModelInput) customModelInput.value = name;
     updateProviderFields();
     showToast(`Now using: ${name}`, 'success');
   } catch (e) {
     showToast('Failed to activate model', 'error');
   }
 };
+
+// ── Global Error Handling ─────────────────────────────────────────────────────
+window.addEventListener('error', (event) => {
+  console.error('Uncaught UI error:', event.error);
+  showToast(`Uncaught Error: ${event.message}`, 'error');
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled promise rejection:', event.reason);
+  showToast(`Unhandled Rejection: ${event.reason?.message || event.reason}`, 'error');
+});
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
