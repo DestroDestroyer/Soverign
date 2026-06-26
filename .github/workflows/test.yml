@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: soverign-core
+        working-directory: sovereign-core
 
     steps:
       - name: Checkout code
@@ -38,7 +38,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: soverign-core/test-results/
+          path: sovereign-core/test-results/
           if-no-files-found: ignore
 
   # ── Job 2: IPC / DOM / CSS contract validation ──────────────────────────────
@@ -47,7 +47,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: soverign-desktop
+        working-directory: sovereign-desktop
 
     steps:
       - name: Checkout code
@@ -70,7 +70,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: soverign-core
+        working-directory: sovereign-core
 
     steps:
       - name: Checkout code
@@ -104,7 +104,7 @@ jobs:
 
       - name: Audit desktop dependencies
         run: npm audit --audit-level=high
-        working-directory: soverign-desktop
+        working-directory: sovereign-desktop
         continue-on-error: true  # Report but don't block
 
       - name: Setup Bun
@@ -114,5 +114,5 @@ jobs:
 
       - name: Audit core dependencies
         run: bun audit 2>/dev/null || echo "bun audit not available — skipping"
-        working-directory: soverign-core
+        working-directory: sovereign-core
         continue-on-error: true

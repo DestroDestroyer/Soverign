@@ -1,9 +1,9 @@
-# Soverign — The Sovereign AI Desktop Assistant
+# Sovereign — The Sovereign AI Desktop Assistant
 
 <div align="center">
 
-![Soverign Logo](https://img.shields.io/badge/SOVERIGN-AI%20Assistant-6C63FF?style=for-the-badge&logo=electron&logoColor=white)
-[![Tests](https://github.com/DestroDestroyer/Soverign/actions/workflows/test.yml/badge.svg)](https://github.com/DestroDestroyer/Soverign/actions/workflows/test.yml)
+![Sovereign Logo](https://img.shields.io/badge/SOVEREIGN-AI%20Assistant-6C63FF?style=for-the-badge&logo=electron&logoColor=white)
+[![Tests](https://github.com/DestroDestroyer/Sovereign/actions/workflows/test.yml/badge.svg)](https://github.com/DestroDestroyer/Sovereign/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Runtime-Bun%201.3%2B-F472B6?logo=bun)](https://bun.sh)
 [![Electron](https://img.shields.io/badge/UI-Electron%2031-47848F?logo=electron)](https://www.electronjs.org)
@@ -16,9 +16,9 @@ No cloud dependency. No subscription. Your data never leaves your device.
 
 ---
 
-## ✨ What is Soverign?
+## ✨ What is Sovereign?
 
-Soverign is an autonomous AI system that acts as your **personal executive assistant**. It watches your desktop activity, organises your work, executes tasks, and learns your workflow — all while running 100% locally using open-source LLMs via Ollama.
+Sovereign is an autonomous AI system that acts as your **personal executive assistant**. It watches your desktop activity, organises your work, executes tasks, and learns your workflow — all while running 100% locally using open-source LLMs via Ollama.
 
 ### Key Highlights
 
@@ -39,10 +39,10 @@ Soverign is an autonomous AI system that acts as your **personal executive assis
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        SOVERIGN SYSTEM                                   │
+│                        SOVEREIGN SYSTEM                                   │
 ├────────────────────────┬────────────────────────────────────────────────┤
 │   ELECTRON DESKTOP UI  │            BUN DAEMON (port 3142)               │
-│   soverign-desktop/    │            soverign-core/                        │
+│   sovereign-desktop/    │            sovereign-core/                        │
 │                        │                                                  │
 │  ┌──────────────────┐  │  ┌──────────────┐  ┌───────────────────────┐  │
 │  │   Renderer UI     │  │  │ Agent Service│  │   Observer Service    │  │
@@ -72,21 +72,21 @@ Soverign is an autonomous AI system that acts as your **personal executive assis
 
 | Directory | Language | Role |
 |-----------|----------|------|
-| `soverign-desktop/` | JavaScript (Electron) | Desktop GUI, IPC bridge to daemon |
-| `soverign-core/` | TypeScript (Bun) | Daemon: LLM, agents, observers, workflows |
-| `soverign-integrations/` | Mixed | Optional integrations (MCP, external services) |
+| `sovereign-desktop/` | JavaScript (Electron) | Desktop GUI, IPC bridge to daemon |
+| `sovereign-core/` | TypeScript (Bun) | Daemon: LLM, agents, observers, workflows |
+| `sovereign-integrations/` | Mixed | Optional integrations (MCP, external services) |
 
 ---
 
 ## 📂 File Structure
 
 ```
-Soverign/
-├── run_soverign.bat           # One-click Windows launcher
+Sovereign/
+├── run_sovereign.bat           # One-click Windows launcher
 ├── health-check.bat           # Quick health check for all services
-├── stop_soverign.bat          # Stop all running Soverign processes
+├── stop_sovereign.bat          # Stop all running Sovereign processes
 │
-├── soverign-desktop/          # Electron desktop application
+├── sovereign-desktop/          # Electron desktop application
 │   ├── main.js                # Main process: window + ALL IPC handlers
 │   ├── preload.js             # Secure bridge exposing window.api to renderer
 │   ├── validate.js            # Contract checker (IPC / DOM / CSS)
@@ -95,7 +95,7 @@ Soverign/
 │       ├── renderer.js        # UI logic: DOM, events, API calls
 │       └── index.css          # Styles + all @keyframes animations
 │
-└── soverign-core/             # Bun daemon (TypeScript)
+└── sovereign-core/             # Bun daemon (TypeScript)
     ├── src/
     │   ├── daemon/            # Server startup, services, health monitor
     │   ├── agents/            # Multi-agent orchestration
@@ -128,16 +128,16 @@ Soverign/
 
 ```bat
 :: 1. Clone the repository
-git clone https://github.com/DestroDestroyer/Soverign.git
-cd Soverign
+git clone https://github.com/DestroDestroyer/Sovereign.git
+cd Sovereign
 
 :: 2. Install core dependencies
-cd soverign-core
+cd sovereign-core
 bun install
 cd ..
 
 :: 3. Install desktop dependencies  
-cd soverign-desktop
+cd sovereign-desktop
 npm install
 cd ..
 
@@ -149,15 +149,15 @@ ollama pull qwen2.5:1.5b
 
 ```bat
 :: One-click launcher (handles everything automatically)
-run_soverign.bat
+run_sovereign.bat
 
 :: Or manually:
 :: Terminal 1 — Start the daemon
-cd soverign-core
+cd sovereign-core
 bun start
 
 :: Terminal 2 — Start the desktop UI
-cd soverign-desktop
+cd sovereign-desktop
 node_modules\.bin\electron.cmd .
 ```
 
@@ -168,7 +168,7 @@ The **web dashboard** is also available at `http://localhost:3142/` in your brow
 
 ## ⚙️ Configuration
 
-Configuration is stored in `%USERPROFILE%\.soverign\config.yaml`:
+Configuration is stored in `%USERPROFILE%\.sovereign\config.yaml`:
 
 ```yaml
 llm:
@@ -188,7 +188,7 @@ telemetry:
 
 ## 🤖 Agent Roles
 
-Soverign ships with a full executive team out of the box:
+Sovereign ships with a full executive team out of the box:
 
 | Role | File | Capabilities |
 |------|------|-------------|
@@ -233,11 +233,11 @@ Workflows are managed through the desktop UI or the REST API at `http://localhos
 
 ```bat
 :: Run all unit tests (1300+ tests)
-cd soverign-core
+cd sovereign-core
 bun test
 
 :: Validate IPC contracts (must return 0 errors before any commit)
-cd soverign-desktop
+cd sovereign-desktop
 node validate.js
 
 :: Quick health check
@@ -275,15 +275,15 @@ This project is in active development. Contributions welcome!
 
 1. Fork the repo
 2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Run tests: `cd soverign-core && bun test`
-4. Validate contracts: `cd soverign-desktop && node validate.js`
+3. Run tests: `cd sovereign-core && bun test`
+4. Validate contracts: `cd sovereign-desktop && node validate.js`
 5. Commit and open a PR
 
 ---
 
 ## 📄 License
 
-MIT — see [LICENSE](./soverign-core/LICENSE)
+MIT — see [LICENSE](./sovereign-core/LICENSE)
 
 ---
 

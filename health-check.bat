@@ -3,10 +3,10 @@ setlocal enabledelayedexpansion
 
 set PASS=0
 set FAIL=0
-set LOGFILE=%USERPROFILE%\.soverign\health.log
+set LOGFILE=%USERPROFILE%\.sovereign\health.log
 
 echo ============================================
-echo   Soverign Health Check
+echo   Sovereign Health Check
 echo   %date% %time%
 echo ============================================
 echo.
@@ -65,39 +65,39 @@ if %errorlevel%==0 (
 
 :: Check 5: Config dir exists
 echo [CHECK] Config directory...
-if exist "%USERPROFILE%\.soverign" (
-  echo   PASS: %USERPROFILE%\.soverign exists
+if exist "%USERPROFILE%\.sovereign" (
+  echo   PASS: %USERPROFILE%\.sovereign exists
   set /a PASS+=1
 ) else (
-  echo   FAIL: %USERPROFILE%\.soverign not found
+  echo   FAIL: %USERPROFILE%\.sovereign not found
   set /a FAIL+=1
 )
 
 :: Check 6: SQLite DB
 echo [CHECK] SQLite database...
-if exist "%USERPROFILE%\.soverign\soverign.db" (
-  echo   PASS: soverign.db exists
+if exist "%USERPROFILE%\.sovereign\sovereign.db" (
+  echo   PASS: sovereign.db exists
   set /a PASS+=1
 ) else (
-  echo   WARN: soverign.db not found (will be created on first run)
+  echo   WARN: sovereign.db not found (will be created on first run)
 )
 
 :: Check 7: Config YAML
 echo [CHECK] Config file...
-if exist "%USERPROFILE%\.soverign\config.yaml" (
+if exist "%USERPROFILE%\.sovereign\config.yaml" (
   echo   PASS: config.yaml exists
   set /a PASS+=1
 ) else (
   echo   WARN: config.yaml not found
 )
 
-:: Check 8: soverign-core exists
-echo [CHECK] soverign-core...
-if exist "%~dp0soverign-core\src\daemon\index.ts" (
-  echo   PASS: soverign-core source found
+:: Check 8: sovereign-core exists
+echo [CHECK] sovereign-core...
+if exist "%~dp0sovereign-core\src\daemon\index.ts" (
+  echo   PASS: sovereign-core source found
   set /a PASS+=1
 ) else (
-  echo   FAIL: soverign-core source not found
+  echo   FAIL: sovereign-core source not found
   set /a FAIL+=1
 )
 
@@ -107,7 +107,7 @@ echo   Results: %PASS% passed, %FAIL% failed
 echo ============================================
 
 :: Write log
-if not exist "%USERPROFILE%\.soverign" mkdir "%USERPROFILE%\.soverign"
+if not exist "%USERPROFILE%\.sovereign" mkdir "%USERPROFILE%\.sovereign"
 echo %date% %time% - PASS:%PASS% FAIL:%FAIL% >> "%LOGFILE%"
 
 if %FAIL% gtr 0 (

@@ -2,7 +2,7 @@ import os
 import re
 
 input_file = r"C:\Users\Akash\.gemini\antigravity\brain\4b850ce7-17bf-4916-8610-18f34fd2108f\extracted_user_code.md"
-output_dir = r"d:\Soverign\soverign-core\src"
+output_dir = r"d:\Sovereign\sovereign-core\src"
 
 with open(input_file, 'r', encoding='utf-8') as f:
     content = f.read()

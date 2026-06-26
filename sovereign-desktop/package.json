@@ -1,0 +1,20 @@
+{
+  "name": "sovereign-desktop-console",
+  "version": "1.0.0",
+  "description": "Standalone Desktop Control Console for Sovereign",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [
+    "sovereign",
+    "desktop",
+    "wsl",
+    "sidecar"
+  ],
+  "author": "Antigravity",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

@@ -1,6 +1,6 @@
-# Soverign — Task Features Tracker
+# Sovereign — Task Features Tracker
 
-This file tracks the status of all feature implementations, upgrades, and migrations for the Soverign AI Console.
+This file tracks the status of all feature implementations, upgrades, and migrations for the Sovereign AI Console.
 
 ---
 
@@ -26,9 +26,9 @@ This file tracks the status of all feature implementations, upgrades, and migrat
 - [x] Write CSS slide transitions for toggling the settings/options sidebar.
 - [x] Write JS control logic in `renderer.js`.
 
-### [x] Task 5.5: Global Name & Directory Rename (Soverign)
+### [x] Task 5.5: Global Name & Directory Rename (Sovereign)
 - [x] Rename directories and batch scripts.
-- [x] Perform search-and-replace of "Jarvis" / "JARVIS" to "Soverign".
+- [x] Perform search-and-replace of "Jarvis" / "JARVIS" to "Sovereign".
 
 ### [x] Task 5.6: UI Scrolling & Modal Boundary Fixes
 - [x] Update `index.css` to constrain sidebar height and enable vertical scrolling.
@@ -42,9 +42,9 @@ This file tracks the status of all feature implementations, upgrades, and migrat
 ### [x] Task 5.8: Native Windows Migration (NO WSL)
 - [x] Rewrote `main.js`: spawns Bun daemon natively (no `wsl.exe` calls).
 - [x] Log streaming via PowerShell `Get-Content -Wait` (native tail).
-- [x] Config read/write: Windows-native `~/.soverign/config.yaml`.
+- [x] Config read/write: Windows-native `~/.sovereign/config.yaml`.
 - [x] Stop daemon: uses `netstat` + `taskkill` (not wsl pkill).
-- [x] Updated `run_soverign.bat`: native Bun start, no WSL dependency.
+- [x] Updated `run_sovereign.bat`: native Bun start, no WSL dependency.
 - [x] Updated `preload.js`: added `scanHardware`, `listLocalModels` bridges.
 - [x] Updated `index.html`: labels fixed (no more "WSL Daemon", "7B").
 - [x] Updated `renderer.js`: hardware scan wired, ollama shows model field.

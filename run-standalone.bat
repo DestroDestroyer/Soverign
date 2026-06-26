@@ -1,12 +1,12 @@
 @echo off
-REM SOVERIGN Standalone Launcher for Windows
+REM SOVEREIGN Standalone Launcher for Windows
 REM Runs completely offline without external services
 
 setlocal enabledelayedexpansion
 
 echo.
 echo ╔════════════════════════════════════════════════════════╗
-echo ║    SOVERIGN Standalone (Offline Mode on Windows)       ║
+echo ║    SOVEREIGN Standalone (Offline Mode on Windows)       ║
 echo ╚════════════════════════════════════════════════════════╝
 echo.
 
@@ -42,11 +42,11 @@ if %ERRORLEVEL% NEQ 0 (
 REM Get the directory where this script is located
 cd /d "%~dp0"
 
-REM Navigate to soverign-core
-if exist "soverign-core\" (
-    cd soverign-core
+REM Navigate to sovereign-core
+if exist "sovereign-core\" (
+    cd sovereign-core
 ) else (
-    echo Error: soverign-core directory not found!
+    echo Error: sovereign-core directory not found!
     exit /b 1
 )
 
@@ -57,13 +57,13 @@ if not exist "node_modules\" (
 )
 
 REM Set environment variables
-set SOVERIGN_PORT=3142
+set SOVEREIGN_PORT=3142
 set OLLAMA_URL=http://localhost:11434
 set OLLAMA_MODEL=mistral
 
 REM Start the standalone server
 echo.
-echo Starting SOVERIGN Standalone Server...
+echo Starting SOVEREIGN Standalone Server...
 echo Dashboard: http://localhost:3142
 echo.
 echo Press Ctrl+C to stop.
