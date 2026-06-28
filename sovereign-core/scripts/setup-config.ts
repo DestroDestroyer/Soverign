@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
 /**
- * Setup script for J.A.R.V.I.S. configuration
+ * Setup script for Sovereign configuration
  *
  * This script helps you:
- * 1. Create the ~/.jarvis directory
+ * 1. Create the ~/.sovereign directory
  * 2. Copy the example config if needed
  * 3. Validate your configuration
  * 4. Test LLM provider connectivity
@@ -22,7 +22,7 @@ import {
   OllamaProvider,
 } from '../src/llm/index.ts';
 
-const CONFIG_DIR = join(homedir(), '.jarvis');
+const CONFIG_DIR = join(homedir(), '.sovereign');
 const CONFIG_PATH = join(CONFIG_DIR, 'config.yaml');
 const EXAMPLE_CONFIG = join(process.cwd(), 'config.example.yaml');
 
@@ -186,7 +186,7 @@ async function testProviders(config: any): Promise<void> {
 }
 
 async function main() {
-  console.log('J.A.R.V.I.S. Configuration Setup\n');
+  console.log('Sovereign Configuration Setup\n');
   console.log('================================\n');
 
   await ensureConfigDir();
@@ -196,7 +196,7 @@ async function main() {
 
   console.log('Setup complete! 🚀\n');
   console.log('Next steps:');
-  console.log('  1. Edit config if needed: nano ~/.jarvis/config.yaml');
+  console.log('  1. Edit config if needed: nano ~/.sovereign/config.yaml');
   console.log('  2. Run tests: bun run src/llm/test.ts');
   console.log('  3. Try examples: bun run examples/llm-integration.ts');
   console.log('');

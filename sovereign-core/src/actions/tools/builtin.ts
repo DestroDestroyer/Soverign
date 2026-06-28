@@ -145,6 +145,9 @@ export const readFileTool: ToolDefinition = {
     const rawPath = params.path as string;
     const baseCwd = getDefaultCwd() || homedir();
     const filePath = resolve(baseCwd, rawPath);
+    if (!filePath.startsWith(baseCwd)) {
+      return `Error: Path traversal detected: ${filePath} is outside the allowed directory ${baseCwd}`;
+    }
 
     if (!existsSync(filePath)) {
       return `Error: File not found: ${filePath}`;
@@ -197,6 +200,9 @@ export const writeFileTool: ToolDefinition = {
     const rawPath = params.path as string;
     const baseCwd = getDefaultCwd() || homedir();
     const filePath = resolve(baseCwd, rawPath);
+    if (!filePath.startsWith(baseCwd)) {
+      return `Error: Path traversal detected: ${filePath} is outside the allowed directory ${baseCwd}`;
+    }
     const content = params.content as string;
 
     writeFileSync(filePath, content, 'utf-8');
@@ -231,6 +237,9 @@ export const listDirectoryTool: ToolDefinition = {
     const rawPath = params.path as string;
     const baseCwd = getDefaultCwd() || homedir();
     const dirPath = resolve(baseCwd, rawPath);
+    if (!dirPath.startsWith(baseCwd)) {
+      return `Error: Path traversal detected: ${dirPath} is outside the allowed directory ${baseCwd}`;
+    }
 
     if (!existsSync(dirPath)) {
       return `Error: Directory not found: ${dirPath}`;

@@ -35,7 +35,7 @@ function SecurityTests() {
       // --- #2: Same-Origin Iframe via Proxy Path ---
       {
         name: "Same-Origin API Fetch",
-        description: "Attempts fetch('/api/health') — if same-origin and no sandbox, this returns Jarvis health data.",
+        description: "Attempts fetch('/api/health') — if same-origin and no sandbox, this returns Sovereign health data.",
         auditRef: "#2 — Same-Origin Iframe via Proxy Path",
         status: "pending",
         detail: "",
@@ -56,7 +56,7 @@ function SecurityTests() {
       },
       {
         name: "Config Exfiltration",
-        description: "Attempts fetch('/api/config') to steal Jarvis config including API keys.",
+        description: "Attempts fetch('/api/config') to steal Sovereign config including API keys.",
         auditRef: "#2 — Same-Origin Iframe via Proxy Path",
         status: "pending",
         detail: "",
@@ -99,8 +99,8 @@ function SecurityTests() {
       },
       // --- #3: WebSocket ---
       {
-        name: "WebSocket to Jarvis /ws",
-        description: "Attempts new WebSocket('/ws') to open a direct WebSocket to the Jarvis daemon.",
+name: "WebSocket to Sovereign /ws",
+description: "Attempts new WebSocket('/ws') to open a direct WebSocket to the Sovereign daemon.",
         auditRef: "#3 — Unfiltered WebSocket HMR Tunnel",
         status: "pending",
         detail: "",
@@ -333,7 +333,7 @@ function SecurityTests() {
     try {
       const keys = Object.keys(localStorage);
       const dashboardKeys = keys.filter(
-        (k) => k.startsWith("jarvis") || k === "conversations" || k === "auth" || k === "token"
+        (k) => k.startsWith("sovereign") || k === "conversations" || k === "auth" || k === "token"
       );
       if (dashboardKeys.length > 0) {
         updateResult(i, { status: "vulnerable", detail: `Dashboard storage leaked: ${dashboardKeys.slice(0, 5).join(", ")}` });
@@ -364,7 +364,7 @@ function SecurityTests() {
     }
     i++;
 
-    // Test 9: WebSocket to Jarvis /ws
+    // Test 9: WebSocket to Sovereign /ws
     try {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -437,7 +437,7 @@ function SecurityTests() {
     try {
       const dbs = await indexedDB.databases();
       const names = dbs.map(d => d.name).filter(Boolean);
-      const dashboardDbs = names.filter(n => n!.includes("jarvis") || n!.includes("vault"));
+      const dashboardDbs = names.filter(n => n!.includes("sovereign") || n!.includes("vault"));
       if (dashboardDbs.length > 0) {
         updateResult(i, { status: "vulnerable", detail: `Dashboard DBs found: ${dashboardDbs.join(", ")}` });
       } else {
@@ -497,16 +497,16 @@ function SecurityTests() {
         signal: AbortSignal.timeout(3000),
       });
       // On the direct localhost path, 404 comes from the dev server (no such route)
-      // not from Jarvis. Only flag as vulnerable if the response looks like a Jarvis
+      // not from Sovereign. Only flag as vulnerable if the response looks like a Sovereign
       // API response (JSON with "error" or "ok" keys).
       const text = await resp.text();
-      const isJarvisResponse = text.includes('"error"') || text.includes('"ok"');
-      if (resp.ok && isJarvisResponse) {
+      const isSovereignResponse = text.includes('"error"') || text.includes('"ok"');
+      if (resp.ok && isSovereignResponse) {
         updateResult(i, { status: "vulnerable", detail: `DELETE succeeded: ${text.slice(0, 100)}` });
-      } else if (resp.status === 404 && isJarvisResponse) {
-        updateResult(i, { status: "vulnerable", detail: `Jarvis API reachable (404): ${text.slice(0, 100)}` });
+      } else if (resp.status === 404 && isSovereignResponse) {
+        updateResult(i, { status: "vulnerable", detail: `Sovereign API reachable (404): ${text.slice(0, 100)}` });
       } else {
-        updateResult(i, { status: "blocked", detail: `Returned ${resp.status} (not a Jarvis API response)` });
+        updateResult(i, { status: "blocked", detail: `Returned ${resp.status} (not a Sovereign API response)` });
       }
     } catch (err) {
       updateResult(i, { status: "blocked", detail: `fetch() threw: ${(err as Error).message}` });
@@ -589,7 +589,7 @@ function SecurityTests() {
 
     // Test 23: BroadcastChannel Eavesdrop
     try {
-      const bc = new BroadcastChannel("jarvis");
+      const bc = new BroadcastChannel("sovereign");
       let received = false;
       bc.onmessage = () => { received = true; };
       // Also try sending to see if dashboard picks it up
@@ -597,7 +597,7 @@ function SecurityTests() {
       await new Promise((r) => setTimeout(r, 2000));
       bc.close();
       if (received) {
-        updateResult(i, { status: "vulnerable", detail: "Received message on 'jarvis' BroadcastChannel!" });
+        updateResult(i, { status: "vulnerable", detail: "Received message on 'sovereign' BroadcastChannel!" });
       } else {
         updateResult(i, { status: "blocked", detail: "BroadcastChannel open but no messages (different origin or not used)" });
       }
@@ -681,7 +681,7 @@ function SecurityTests() {
       <p style={{ color: "#666", fontSize: 14 }}>
         This page attempts every attack vector from the proxy security audit.
         <br />
-        Open this project in the Jarvis Sites page to test both <strong>proxy mode</strong> and{" "}
+        Open this project in the Sovereign Sites page to test both <strong>proxy mode</strong> and{" "}
         <strong>direct localhost</strong> mode.
       </p>
 

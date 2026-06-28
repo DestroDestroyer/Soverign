@@ -187,6 +187,30 @@ export function isLocked(lockPath: string = LOCK_PATH): number | null {
  * Returns null if the lock is already held.
  */
 export function acquireLockAt(lockPath: string, pid: number): { release: () => void } | null {
+  if (process.platform === 'win32') {
+    try {
+      mkdirSync(join(lockPath, '..'), { recursive: true });
+      const runningPid = isLocked(lockPath);
+      if (runningPid) {
+        return null;
+      }
+      const fd = openSync(lockPath, constants.O_RDWR | constants.O_CREAT, 0o644);
+      ftruncateSync(fd, 0);
+      writeSync(fd, String(pid));
+      let released = false;
+      return {
+        release: () => {
+          if (released) return;
+          released = true;
+          try { closeSync(fd); } catch { /* already closed */ }
+          try { if (existsSync(lockPath)) unlinkSync(lockPath); } catch { /* ignore */ }
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
   try {
     mkdirSync(join(lockPath, '..'), { recursive: true });
     const fd = openSync(lockPath, constants.O_WRONLY | constants.O_CREAT, 0o644);

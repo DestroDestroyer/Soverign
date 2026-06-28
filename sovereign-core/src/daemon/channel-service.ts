@@ -63,7 +63,7 @@ export class ChannelService implements Service {
 
       // 1. Create STT provider if configured
       if (this.config.stt) {
-        this.sttProvider = createSTTProvider(this.config.stt);
+        this.sttProvider = await createSTTProvider(this.config.stt);
         if (this.sttProvider) {
           console.log(`[ChannelService] STT provider: ${this.config.stt.provider}`);
         } else {

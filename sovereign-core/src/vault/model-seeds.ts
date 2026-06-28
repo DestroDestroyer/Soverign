@@ -288,6 +288,25 @@ export const MODEL_SEEDS: SeedModel[] = [
     download_command: 'ollama pull smollm2:1.7b',
     tags: 'local,tiny,fast,huggingface',
   },
+  // `tiiuae/Falcon-H1-1.5B-Deep-Instruct` from HF (safetensors, not GGUF).
+  // To use in Ollama, create a Modelfile with:
+  //   FROM tiiuae/Falcon-H1-1.5B-Deep-Instruct
+  // Then: ollama create falcon-h1-1.5b -f Modelfile
+  // This lets Ollama auto-download and quantize from HuggingFace.
+  {
+    id: 'ollama:falcon-h1-1.5b-deep-instruct',
+    name: 'falcon-h1-1.5b-deep-instruct',
+    display_name: 'Falcon-H1 1.5B Deep Instruct (HF import)',
+    provider: 'ollama',
+    parameter_count: 1.5,
+    context_length: 8192,
+    min_ram: 3,
+    min_vram: 0,
+    speed_rank: 2,
+    download_url: 'https://huggingface.co/tiiuae/Falcon-H1-1.5B-Deep-Instruct',
+    download_command: 'echo "create Modelfile with: FROM tiiuae/Falcon-H1-1.5B-Deep-Instruct && ollama create falcon-h1-1.5b -f Modelfile"',
+    tags: 'local,small,fast,falcon,tiiuae,reasoning,hf-import',
+  },
   {
     id: 'ollama:nomic-embed-text',
     name: 'nomic-embed-text',

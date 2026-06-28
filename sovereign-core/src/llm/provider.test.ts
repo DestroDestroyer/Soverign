@@ -288,7 +288,7 @@ describe('Default Models', () => {
 
   test('OllamaProvider has correct default model', () => {
     const provider = new OllamaProvider() as any;
-    expect(provider.defaultModel).toBe('llama3');
+    expect(provider.defaultModel).toBe('sam860/falcon-h1:1.5b-deep-Q4_0');
   });
 
   test('GroqProvider has correct default model', () => {

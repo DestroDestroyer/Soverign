@@ -17,7 +17,9 @@ export class EventBus {
 
   emit(event: string, data: any) {
     const callbacks = this.listeners.get(event) || [];
-    for (const cb of callbacks) cb(data);
+    for (const cb of callbacks) {
+      try { cb(data); } catch (err) { console.error(`[EventBus] Handler error for ${event}:`, err); }
+    }
   }
 
   off(event: string, callback: EventCallback) {

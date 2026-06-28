@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * CLI: build every Jarvis-authored piece into its `dist/` layout so the
+ * CLI: build every Sovereign-authored piece into its `dist/` layout so the
  * activepieces engine subprocess can load them via dev-pieces mode.
  *
  * Usage:

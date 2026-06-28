@@ -15,7 +15,7 @@ export class WindowsServiceManager implements Service {
     try {
       if (this.isServiceEnvironment()) {
         logger.info('Running in Windows Service context, connecting to SCM...');
-        const dataDir = path.join(os.homedir(), '.sovereign');
+        const dataDir = process.env.PROGRAMDATA ? path.join(process.env.PROGRAMDATA, 'Sovereign') : path.join(os.homedir(), '.sovereign');
         if (!fs.existsSync(dataDir)) {
           fs.mkdirSync(dataDir, { recursive: true });
         }

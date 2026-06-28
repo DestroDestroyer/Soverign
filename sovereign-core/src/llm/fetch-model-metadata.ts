@@ -10,15 +10,16 @@ import { execSync } from 'node:child_process';
 const FETCH_TIMEOUT_MS = 15_000;
 
 async function safeFetch(url: string, options?: RequestInit): Promise<unknown | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
     if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

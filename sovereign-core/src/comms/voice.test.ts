@@ -33,125 +33,125 @@ function makeWavBuffer(pcmBytes = 100): Buffer {
 }
 
 describe('createSTTProvider factory', () => {
-  test('returns OpenAIWhisperSTT when provider=openai and key present', () => {
+  test('returns OpenAIWhisperSTT when provider=openai and key present', async () => {
     const config: STTConfig = {
       provider: 'openai',
       openai: { api_key: 'test-openai-key-not-real' },
     };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeInstanceOf(OpenAIWhisperSTT);
   });
 
-  test('returns null when provider=openai and no key', () => {
+  test('returns null when provider=openai and no key', async () => {
     const config: STTConfig = { provider: 'openai' };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeNull();
   });
 
-  test('returns GroqWhisperSTT when provider=groq and key present', () => {
+  test('returns GroqWhisperSTT when provider=groq and key present', async () => {
     const config: STTConfig = {
       provider: 'groq',
       groq: { api_key: 'gtest-openai-key-not-real' },
     };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeInstanceOf(GroqWhisperSTT);
   });
 
-  test('returns null when provider=groq and no key', () => {
+  test('returns null when provider=groq and no key', async () => {
     const config: STTConfig = { provider: 'groq' };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeNull();
   });
 
-  test('returns LocalWhisperSTT when provider=local (no key needed)', () => {
+  test('returns LocalWhisperSTT when provider=local (no key needed)', async () => {
     const config: STTConfig = { provider: 'local' };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeInstanceOf(LocalWhisperSTT);
   });
 
-  test('returns LocalWhisperSTT with custom endpoint', () => {
+  test('returns LocalWhisperSTT with custom endpoint', async () => {
     const config: STTConfig = {
       provider: 'local',
       local: { endpoint: 'http://my-server:9000' },
     };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeInstanceOf(LocalWhisperSTT);
   });
 
-  test('passes server_type through to LocalWhisperSTT', () => {
+  test('passes server_type through to LocalWhisperSTT', async () => {
     const config: STTConfig = {
       provider: 'local',
       local: { endpoint: 'http://my-server:9000', server_type: 'openai_compatible' },
     };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeInstanceOf(LocalWhisperSTT);
   });
 
-  test('returns null for unknown provider', () => {
+  test('returns null for unknown provider', async () => {
     const config = { provider: 'unknown' } as any;
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeNull();
   });
 
-  test('returns OpenAI with custom model', () => {
+  test('returns OpenAI with custom model', async () => {
     const config: STTConfig = {
       provider: 'openai',
       openai: { api_key: 'test-key-not-real', model: 'whisper-large-v3' },
     };
-    const provider = createSTTProvider(config);
+    const provider = await createSTTProvider(config);
     expect(provider).toBeInstanceOf(OpenAIWhisperSTT);
   });
 
-  test('returns SarvamSTT when provider=sarvam and key present', () => {
+  test('returns SarvamSTT when provider=sarvam and key present', async () => {
     const config: STTConfig = {
       provider: 'sarvam',
       sarvam: { api_key: 'sk_test_not_real' },
     };
-    expect(createSTTProvider(config)).toBeInstanceOf(SarvamSTT);
+    expect(await createSTTProvider(config)).toBeInstanceOf(SarvamSTT);
   });
 
-  test('returns null when provider=sarvam and no key', () => {
+  test('returns null when provider=sarvam and no key', async () => {
     const config: STTConfig = { provider: 'sarvam' };
-    expect(createSTTProvider(config)).toBeNull();
+    expect(await createSTTProvider(config)).toBeNull();
   });
 });
 
 describe('createTTSProvider factory', () => {
-  test('returns null when tts disabled', () => {
+  test('returns null when tts disabled', async () => {
     const config: TTSConfig = { enabled: false };
-    expect(createTTSProvider(config)).toBeNull();
+    expect(await createTTSProvider(config)).toBeNull();
   });
 
-  test('returns EdgeTTSProvider when enabled', () => {
+  test('returns EdgeTTSProvider when enabled', async () => {
     const config: TTSConfig = { enabled: true };
-    const provider = createTTSProvider(config);
+    const provider = await createTTSProvider(config);
     expect(provider).toBeInstanceOf(EdgeTTSProvider);
   });
 
-  test('passes voice config to provider', () => {
+  test('passes voice config to provider', async () => {
     const config: TTSConfig = { enabled: true, voice: 'en-GB-SoniaNeural' };
-    const provider = createTTSProvider(config);
+    const provider = await createTTSProvider(config);
     expect(provider).toBeInstanceOf(EdgeTTSProvider);
   });
 
-  test('passes rate and volume config', () => {
+  test('passes rate and volume config', async () => {
     const config: TTSConfig = { enabled: true, rate: '+20%', volume: '-10%' };
-    const provider = createTTSProvider(config);
+    const provider = await createTTSProvider(config);
     expect(provider).not.toBeNull();
   });
 
-  test('returns SarvamTTSProvider when provider=sarvam and key present', () => {
+  test('returns SarvamTTSProvider when provider=sarvam and key present', async () => {
     const config: TTSConfig = {
       enabled: true,
       provider: 'sarvam',
       sarvam: { api_key: 'sk_test_not_real' },
     };
-    expect(createTTSProvider(config)).toBeInstanceOf(SarvamTTSProvider);
+    expect(await createTTSProvider(config)).toBeInstanceOf(SarvamTTSProvider);
   });
 
-  test('returns null when provider=sarvam and no key', () => {
+  test('returns null when provider=sarvam and no key', async () => {
     const config: TTSConfig = { enabled: true, provider: 'sarvam' };
-    expect(createTTSProvider(config)).toBeNull();
+    expect(await createTTSProvider(config)).toBeNull();
   });
 });
 

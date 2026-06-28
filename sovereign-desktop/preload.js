@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('api', {
   stopWatchdog: () => ipcRenderer.invoke('stop-watchdog'),
   checkWatchdogStatus: () => ipcRenderer.invoke('check-watchdog-status'),
   healthCheck: () => ipcRenderer.invoke('health-check'),
+  checkOllamaServer: () => ipcRenderer.invoke('check-ollama-server'),
   
   // Service Installer
   checkServiceInstalled: () => ipcRenderer.invoke('check-service-installed'),
@@ -35,5 +36,44 @@ contextBridge.exposeInMainWorld('api', {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('log-data', subscription);
     return () => ipcRenderer.removeListener('log-data', subscription);
+  },
+
+  // ── Brain API ──────────────────────────────────────────────────────
+  brainStatus: () => ipcRenderer.invoke('brain-status'),
+  brainHealth: () => ipcRenderer.invoke('brain-health'),
+  brainRequest: (method, params, timeout) =>
+    ipcRenderer.invoke('brain-request', { method, params, timeout }),
+  chatSend: (message, history, stream) =>
+    ipcRenderer.invoke('chat-send', { message, history, stream }),
+
+  onBrainEvent: (callback) => {
+    const sub = (event, data) => callback(data);
+    ipcRenderer.on('brain-event', sub);
+    return () => ipcRenderer.removeListener('brain-event', sub);
+  },
+  onBrainStatus: (callback) => {
+    const sub = (event, data) => callback(data);
+    ipcRenderer.on('brain-status', sub);
+    return () => ipcRenderer.removeListener('brain-status', sub);
+  },
+
+  // ── STT/TTS/Voice Config (synced with brain HTTP API) ────────────────
+  getVoiceConfig: () => ipcRenderer.invoke('get-voice-config'),
+  getSttConfig: () => ipcRenderer.invoke('get-stt-config'),
+  saveSttConfig: (data) => ipcRenderer.invoke('save-stt-config', data),
+  getTtsConfig: () => ipcRenderer.invoke('get-tts-config'),
+  saveTtsConfig: (data) => ipcRenderer.invoke('save-tts-config', data),
+  onRefreshWebview: (callback) => {
+    const sub = () => callback();
+    ipcRenderer.on('refresh-webview', sub);
+    return () => ipcRenderer.removeListener('refresh-webview', sub);
+  },
+
+  // ── Verify & Download ─────────────────────────────────────────────────
+  verifyAndDownload: () => ipcRenderer.invoke('verify-and-download'),
+  onVerifyStatus: (callback) => {
+    const sub = (event, data) => callback(data);
+    ipcRenderer.on('verify-status-update', sub);
+    return () => ipcRenderer.removeListener('verify-status-update', sub);
   }
 });

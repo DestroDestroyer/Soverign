@@ -197,13 +197,24 @@ export class WebSocketServer {
 
     this.server = Bun.serve<{ sidecar_id?: string; proxy_target?: string; _proxyUpstream?: WebSocket }>({
       port: this.port,
-      idleTimeout: 30, // seconds — prevent timeout during heavy processing (OCR, PowerShell)
+      idleTimeout: 120,
 
       async fetch(req, server) {
+        try {
         const url = new URL(req.url);
         const pathname = url.pathname;
 
-        // 0. Sidecar WebSocket upgrade (has its own JWT auth)
+        // 0a. Ultra-fast health check (before anything else)
+        if (pathname === '/health') {
+          return Response.json({
+            status: 'ok',
+            uptime: Date.now() - self.startTime,
+            clients: self.clients.size,
+            timestamp: Date.now(),
+          });
+        }
+
+        // 0b. Sidecar WebSocket upgrade (has its own JWT auth)
         if (pathname === '/sidecar/connect' && self.sidecarManager) {
           const authHeader = req.headers.get('Authorization');
           const token = authHeader?.startsWith('Bearer ')
@@ -278,17 +289,7 @@ export class WebSocketServer {
           return new Response('WebSocket upgrade failed', { status: 500 });
         }
 
-        // 3. Health check (always public)
-        if (pathname === '/health') {
-          return Response.json({
-            status: 'ok',
-            uptime: Date.now() - self.startTime,
-            clients: self.clients.size,
-            timestamp: Date.now(),
-          });
-        }
-
-        // 3b. Site builder proxy — intercept before API route matching
+        // 3. Site builder proxy — intercept before API route matching
         if (self.siteProxy && pathname.startsWith('/api/sites/') && pathname.includes('/proxy')) {
           const match = self.siteProxy.matchProxy(pathname);
           if (match) {
@@ -428,6 +429,10 @@ export class WebSocketServer {
         }
 
         return new Response('Not Found', { status: 404 });
+      } catch (e) {
+        console.error('[WS] Unhandled fetch error:', e);
+        return new Response('Internal Server Error', { status: 500 });
+      }
       },
 
       websocket: {

@@ -90,17 +90,18 @@ export type VoiceConfig = {
 };
 
 export type STTConfig = {
-  provider: 'openai' | 'groq' | 'local' | 'sarvam';
+  provider: 'xenova' | 'openai' | 'groq' | 'local' | 'sarvam' | 'openai_compatible';
   openai?: { api_key: string; model?: string };
   groq?: { api_key: string; model?: string };
   local?: { endpoint: string; model?: string; server_type?: 'whisper_cpp' | 'openai_compatible' };
   sarvam?: { api_key: string; model?: string; language?: string };
+  openai_compatible?: { endpoint: string; api_key?: string; model?: string };
 };
 
 export type TTSConfig = {
   enabled: boolean;
-  provider?: 'edge' | 'elevenlabs' | 'sarvam';  // default: 'edge'
-  voice?: string;       // e.g. 'en-US-AriaNeural' (edge)
+  provider?: 'kokoro' | 'edge' | 'elevenlabs' | 'sarvam' | 'openai_compatible';  // default: 'edge'
+  voice?: string;       // e.g. 'af_heart' (kokoro), 'en-US-AriaNeural' (edge)
   rate?: string;        // e.g. '+0%', '+10%' (edge)
   volume?: string;      // e.g. '+0%' (edge)
   elevenlabs?: {
@@ -116,6 +117,12 @@ export type TTSConfig = {
     language?: string;
     speaker?: string;
     sampling_rate?: number;
+  };
+  openai_compatible?: {
+    endpoint: string;
+    api_key?: string;
+    model?: string;
+    voice?: string;
   };
 };
 
@@ -246,6 +253,7 @@ export type LLMProviderKind =
   | 'groq'
   | 'gemini'
   | 'ollama'
+  | 'local'
   | 'openrouter'
   | 'nvidia'
   | 'openai_compatible'
@@ -396,10 +404,10 @@ export const DEFAULT_CONFIG: SovereignConfig = {
     discord: { enabled: false, bot_token: '', allowed_users: [] },
   },
   stt: {
-    provider: 'openai',
+    provider: 'xenova',
   },
   tts: {
-    enabled: false,
+    enabled: true,
     provider: 'edge',
     voice: 'en-US-AriaNeural',
     rate: '+0%',

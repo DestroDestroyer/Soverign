@@ -13,6 +13,7 @@ export class CDPClient {
   private pending = new Map<number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
+    timer?: ReturnType<typeof setTimeout>;
   }>();
   private eventHandlers = new Map<string, Set<CDPEventHandler>>();
 
@@ -36,6 +37,7 @@ export class CDPClient {
             const p = this.pending.get(msg.id);
             if (p) {
               this.pending.delete(msg.id);
+              clearTimeout(p.timer);
               if (msg.error) {
                 p.reject(new Error(`CDP error: ${msg.error.message}`));
               } else {
@@ -73,15 +75,14 @@ export class CDPClient {
 
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
-      this.pending.set(id, { resolve, reject });
-      this.ws!.send(JSON.stringify({ id, method, params }));
-
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`CDP timeout: ${method}`));
         }
       }, 30000);
+      this.pending.set(id, { resolve, reject, timer });
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 

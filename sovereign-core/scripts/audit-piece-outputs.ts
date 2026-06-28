@@ -35,7 +35,7 @@ interface PieceEntry {
   triggers?: Record<string, ActionLike>;
 }
 
-const CACHE_FILE = resolve(homedir(), ".jarvis", "cache", "piece-metadata.json");
+const CACHE_FILE = resolve(homedir(), ".sovereign", "cache", "piece-metadata.json");
 
 if (!existsSync(CACHE_FILE)) {
   console.error(

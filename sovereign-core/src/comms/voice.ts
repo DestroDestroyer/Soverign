@@ -202,8 +202,14 @@ export class SarvamSTT implements STTProvider {
  * Factory: create the right STT provider from config.
  * Returns null if the selected provider lacks required credentials.
  */
-export function createSTTProvider(config: STTConfig): STTProvider | null {
+export async function createSTTProvider(config: STTConfig): Promise<STTProvider | null> {
   switch (config.provider) {
+    case 'xenova': {
+      const { XenovaWhisperSTT } = await import("./voice-xenova.ts");
+      const provider = new XenovaWhisperSTT();
+      await provider.load();
+      return provider;
+    }
     case 'openai':
       if (!config.openai?.api_key) return null;
       return new OpenAIWhisperSTT(config.openai.api_key, config.openai.model);
@@ -212,6 +218,9 @@ export function createSTTProvider(config: STTConfig): STTProvider | null {
       return new GroqWhisperSTT(config.groq.api_key, config.groq.model);
     case 'local':
       return new LocalWhisperSTT(config.local?.endpoint, config.local?.model, config.local?.server_type);
+    case 'openai_compatible':
+      if (!config.openai_compatible?.endpoint) return null;
+      return new LocalWhisperSTT(config.openai_compatible.endpoint, config.openai_compatible.model, 'openai_compatible');
     case 'sarvam':
       if (!config.sarvam?.api_key) return null;
       return new SarvamSTT(config.sarvam.api_key, config.sarvam.model, config.sarvam.language);
@@ -404,11 +413,55 @@ export async function listElevenLabsVoices(apiKey: string): Promise<{
 }
 
 /**
+ * OpenAI-compatible TTS Provider — calls any server speaking the OpenAI
+ * `/v1/audio/speech` API (LocalAI, llama.cpp, etc.).
+ */
+export class OpenAICompatibleTTS implements TTSProvider {
+  private endpoint: string;
+  private apiKey: string;
+  private model: string;
+  private voice: string;
+
+  constructor(endpoint: string, apiKey?: string, model = 'tts-1', voice = 'alloy') {
+    this.endpoint = endpoint.replace(/\/+$/, '');
+    this.apiKey = apiKey || '';
+    this.model = model;
+    this.voice = voice;
+  }
+
+  async synthesize(text: string): Promise<Buffer> {
+    const url = `${this.endpoint}/v1/audio/speech`;
+    const body = { model: this.model, input: text, voice: this.voice, response_format: 'wav' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
+    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const err = await response.text().catch(() => '');
+      throw new Error(`OpenAI-compatible TTS error (${response.status}): ${err.slice(0, 200)}`);
+    }
+    const buf = await response.arrayBuffer();
+    return Buffer.from(buf);
+  }
+
+  async *synthesizeStream(text: string): AsyncIterable<Buffer> {
+    yield await this.synthesize(text);
+  }
+}
+
+/**
  * Factory: create the right TTS provider from config.
  * Returns null if TTS is disabled.
  */
-export function createTTSProvider(config: TTSConfig): TTSProvider | null {
+export async function createTTSProvider(config: TTSConfig): Promise<TTSProvider | null> {
   if (!config.enabled) return null;
+
+  if (config.provider === 'kokoro') {
+    const { KokoroTTSProvider } = await import("./voice-kokoro.ts");
+    const provider = new KokoroTTSProvider(config.voice ?? 'af_heart');
+    await provider.load();
+    return provider;
+  }
 
   if (config.provider === 'elevenlabs') {
     if (!config.elevenlabs?.api_key) return null;
@@ -418,6 +471,16 @@ export function createTTSProvider(config: TTSConfig): TTSProvider | null {
   if (config.provider === 'sarvam') {
     if (!config.sarvam?.api_key) return null;
     return new SarvamTTSProvider(config.sarvam);
+  }
+
+  if (config.provider === 'openai_compatible') {
+    if (!config.openai_compatible?.endpoint) return null;
+    return new OpenAICompatibleTTS(
+      config.openai_compatible.endpoint,
+      config.openai_compatible.api_key,
+      config.openai_compatible.model,
+      config.openai_compatible.voice,
+    );
   }
 
   // Default: Edge TTS

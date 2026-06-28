@@ -154,15 +154,14 @@ export class LLMManager {
    * Add request timeout wrapper for network resilience
    */
   private async withTimeout<T>(promise: Promise<T>, provider: string): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`LLM request to ${provider} timed out after ${LLMManager.REQUEST_TIMEOUT_MS}ms`)),
-          LLMManager.REQUEST_TIMEOUT_MS
-        )
-      )
-    ]);
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`LLM request to ${provider} timed out after ${LLMManager.REQUEST_TIMEOUT_MS}ms`)),
+        LLMManager.REQUEST_TIMEOUT_MS
+      );
+      promise.finally(() => clearTimeout(timer));
+    });
+    return Promise.race([promise, timeoutPromise]);
   }
 
   /**

@@ -1,7 +1,7 @@
 /**
- * Soverign-native pieces -- shared types.
+ * Sovereign-native pieces -- shared types.
  *
- * These pieces live in Soverign (not in the vendored activepieces tree) and use
+ * These pieces live in Sovereign (not in the vendored activepieces tree) and use
  * a minimal local interface rather than the vendored `createPiece` framework.
  * Reasons:
  *   1. Vendored code uses Nx workspace path aliases (`@activepieces/*`) that
@@ -12,21 +12,21 @@
  *      the vendored framework -- they need a typed interface we can call
  *      directly from tests and from a future executor.
  *
- * When engine integration lands, each Soverign piece is wrapped in upstream's
+ * When engine integration lands, each Sovereign piece is wrapped in upstream's
  * `createPiece({ actions: [createAction(...)] })` by a thin adapter. The
  * adapter is mechanical; the action handlers don't need to change.
  *
  * Naming:
- *   piece.name      = "soverign-ask" (kebab; matches activepieces convention)
+ *   piece.name      = "sovereign-ask" (kebab; matches activepieces convention)
  *   action.name     = "ask"        (verb; the operation)
- *   workflow ref    = "soverign-ask:ask"
+ *   workflow ref    = "sovereign-ask:ask"
  */
 
-export interface SoverignPieceContext {
+export interface SovereignPieceContext {
   /** Optional logger; default is silent. Pass console.log in dev. */
   log?: (line: string) => void;
   /** Inject services as needed. Each piece declares which subset it requires. */
-  services: SoverignPieceServices;
+  services: SovereignPieceServices;
 }
 
 /**
@@ -39,7 +39,7 @@ export interface SoverignPieceContext {
  * can construct a minimal context for tests. A piece that needs a service it
  * didn't get throws at execute() time with a clear message.
  */
-export interface SoverignPieceServices {
+export interface SovereignPieceServices {
   llm?: PieceLlmClient;
   toolRegistry?: PieceToolRegistry;
   notifier?: PieceNotifier;
@@ -51,7 +51,7 @@ export interface SoverignPieceServices {
 
 /**
  * Subscribe-style event bus exposed to triggers. The daemon's implementation
- * adapts the Soverign event reactor (M5/M13) to this surface.
+ * adapts the Sovereign event reactor (M5/M13) to this surface.
  *
  * Event types are free-form strings -- the daemon publishes its catalog
  * (e.g. "awareness.context_changed", "commitment.due", "voice.intent",
@@ -88,17 +88,17 @@ export interface PieceWorkflowStartResult {
  * disable. The trigger fires by calling `onFire(payload)`; the runtime turns
  * each fire into a flow run.
  */
-export interface SoverignTrigger<I = unknown> {
+export interface SovereignTrigger<I = unknown> {
   name: string;
   displayName: string;
   description: string;
   inputSchema?: PieceInputSchema;
   parseInput: (raw: unknown) => I;
   /** Called when the parent workflow is enabled. Returns an unsubscribe fn. */
-  subscribe: (input: I, ctx: SoverignTriggerContext) => Promise<TriggerSubscription>;
+  subscribe: (input: I, ctx: SovereignTriggerContext) => Promise<TriggerSubscription>;
 }
 
-export interface SoverignTriggerContext extends SoverignPieceContext {
+export interface SovereignTriggerContext extends SovereignPieceContext {
   /** Called by the trigger to fire a flow run. Payload is forwarded to RUN_FLOW. */
   onFire: (payload: Record<string, unknown>) => Promise<void>;
 }
@@ -145,7 +145,7 @@ export interface PieceAgentDelegateResult {
 }
 
 /**
- * Read-only surface over Soverign state used by `soverign-context`. The daemon's
+ * Read-only surface over Sovereign state used by `sovereign-context`. The daemon's
  * implementation reads directly from the vault DB and from the awareness /
  * commitment services. Tests inject stubs.
  *
@@ -213,7 +213,7 @@ export interface CommitmentSnapshot {
 }
 
 /**
- * Channel-aware delivery surface used by `soverign-notify`. The daemon's
+ * Channel-aware delivery surface used by `sovereign-notify`. The daemon's
  * implementation routes through M8 (telegram/discord/signal), the dashboard
  * broadcaster (WebSocketService), and the voice TTS pipeline (M10).
  *
@@ -240,7 +240,7 @@ export interface PieceNotifyResult {
 }
 
 /**
- * Minimal slice of the Soverign tool registry that pieces use. The daemon's
+ * Minimal slice of the Sovereign tool registry that pieces use. The daemon's
  * concrete `ToolRegistry` satisfies this shape; tests pass a stub.
  */
 export interface PieceToolRegistry {
@@ -292,7 +292,7 @@ export interface PieceLlmResponse {
  * Type of a single input field on a piece action or trigger. Drives the
  * typed widget the dashboard renders (text input, dropdown, toggle, etc.).
  *
- * Keep this set small and Soverign-native rather than mirroring activepieces'
+ * Keep this set small and Sovereign-native rather than mirroring activepieces'
  * full Property API -- our UI only needs to discriminate widget kinds, not
  * preserve every upstream affordance.
  */
@@ -335,32 +335,32 @@ export interface PieceInputSchema {
  * `inputSchema` is optional — pieces that don't declare it fall back to a
  * freeform key/value editor in the dashboard.
  */
-export interface SoverignAction<I = unknown, O = unknown> {
+export interface SovereignAction<I = unknown, O = unknown> {
   name: string;
   displayName: string;
   description: string;
   inputSchema?: PieceInputSchema;
   /** Returns the validated/normalized input or throws. */
   parseInput: (raw: unknown) => I;
-  execute: (input: I, ctx: SoverignPieceContext) => Promise<O>;
+  execute: (input: I, ctx: SovereignPieceContext) => Promise<O>;
 }
 
-export interface SoverignPiece {
+export interface SovereignPiece {
   name: string;
   displayName: string;
   description: string;
-  actions: Record<string, SoverignAction>;
-  triggers?: Record<string, SoverignTrigger>;
+  actions: Record<string, SovereignAction>;
+  triggers?: Record<string, SovereignTrigger>;
 }
 
 /**
- * In-memory registry of Soverign-native pieces. Lookup is by piece name +
+ * In-memory registry of Sovereign-native pieces. Lookup is by piece name +
  * action name. Used by the future engine adapter and by tests.
  */
-export class SoverignPieceRegistry {
-  private readonly pieces: Map<string, SoverignPiece> = new Map();
+export class SovereignPieceRegistry {
+  private readonly pieces: Map<string, SovereignPiece> = new Map();
 
-  register(piece: SoverignPiece): void {
+  register(piece: SovereignPiece): void {
     if (this.pieces.has(piece.name)) {
       throw new Error(`piece already registered: ${piece.name}`);
     }
@@ -368,11 +368,11 @@ export class SoverignPieceRegistry {
     this.pieces.set(piece.name, piece);
   }
 
-  get(name: string): SoverignPiece | null {
+  get(name: string): SovereignPiece | null {
     return this.pieces.get(name) ?? null;
   }
 
-  list(): SoverignPiece[] {
+  list(): SovereignPiece[] {
     return Array.from(this.pieces.values());
   }
 
@@ -400,8 +400,8 @@ export class SoverignPieceRegistry {
 }
 
 /** Convenience: error thrown by `parseInput` impls when input is malformed. */
-export class SoverignActionInputError extends Error {
-  override readonly name = "SoverignActionInputError";
+export class SovereignActionInputError extends Error {
+  override readonly name = "SovereignActionInputError";
 }
 
 /**
@@ -409,7 +409,7 @@ export class SoverignActionInputError extends Error {
  * mistakes that would otherwise produce silently-broken UI (empty enum
  * dropdowns, colliding field keys, etc.).
  */
-function validatePiece(piece: SoverignPiece): void {
+function validatePiece(piece: SovereignPiece): void {
   for (const [key, action] of Object.entries(piece.actions)) {
     if (action.inputSchema) {
       validateSchema(`${piece.name}:${key}`, action.inputSchema);

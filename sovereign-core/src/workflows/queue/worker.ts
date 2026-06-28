@@ -26,7 +26,7 @@ export type JobHandler<P = Record<string, unknown>> = (job: Job<P>) => Promise<v
 export interface WorkerOptions {
   /** Map of job_type -> async handler. Throwing inside a handler triggers retry/fail. */
   handlers: Record<string, JobHandler>;
-  /** Idle poll interval; lower = lower latency, higher CPU. Default 250ms. */
+  /** Idle poll interval; lower = lower latency, higher CPU. Default 1000ms. */
   pollIntervalMs?: number;
   /** Lease for a claimed job. If a worker dies mid-job the lease lapses and another claim picks it up. */
   leaseMs?: number;
@@ -49,7 +49,7 @@ export class Worker {
 
   constructor(opts: WorkerOptions) {
     this.handlers = opts.handlers;
-    this.pollIntervalMs = opts.pollIntervalMs ?? 250;
+    this.pollIntervalMs = opts.pollIntervalMs ?? 1000;
     this.leaseMs = opts.leaseMs;
     this.log = opts.log ?? ((line) => console.log(`[workflow-worker] ${line}`));
   }

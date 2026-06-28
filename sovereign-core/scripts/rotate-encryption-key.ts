@@ -5,7 +5,7 @@
  *   bun run scripts/rotate-encryption-key.ts [--data-dir <path>]
  *
  * Steps:
- *   1. Read the current key from `~/.jarvis/cache/workflow-encryption.key`
+ *   1. Read the current key from `~/.sovereign/cache/workflow-encryption.key`
  *      (or `--key-file`).
  *   2. Decrypt every `app_connection.value` row with the current key.
  *   3. Generate a fresh 32-byte key, persist to `<keyfile>.new` with 0600.
@@ -24,7 +24,7 @@
  *     The choice depends on whether the post-commit logging finished or not.
  *
  * Pre-conditions:
- *   - `JARVIS_WORKFLOW_ENCRYPTION_KEY` env var must be unset. With the env
+ *   - `SOVEREIGN_WORKFLOW_ENCRYPTION_KEY` env var must be unset. With the env
  *     var set, that value IS the key -- you'd rotate by changing the env
  *     and restarting, not by running this script.
  *   - The daemon must be stopped. The script doesn't grab a lock; running
@@ -58,7 +58,7 @@ interface CliArgs {
 }
 
 function parseArgs(): CliArgs {
-  const defaultDataDir = resolve(homedir(), ".jarvis");
+  const defaultDataDir = resolve(homedir(), ".sovereign");
   let dataDir = defaultDataDir;
   let keyFile: string | null = null;
   let dbPath: string | null = null;
@@ -76,13 +76,13 @@ function parseArgs(): CliArgs {
           "Usage: bun run scripts/rotate-encryption-key.ts [options]",
           "",
           "Options:",
-          "  --data-dir <path>   Override the Jarvis data dir (default ~/.jarvis)",
+          "  --data-dir <path>   Override the Sovereign data dir (default ~/.sovereign)",
           "  --key-file <path>   Override the keychain file path",
           "  --db <path>         Override the SQLite DB path",
           "",
           "Pre-conditions:",
           "  - Daemon must be stopped.",
-          "  - JARVIS_WORKFLOW_ENCRYPTION_KEY must be unset.",
+          "  - SOVEREIGN_WORKFLOW_ENCRYPTION_KEY must be unset.",
         ].join("\n"),
       );
       process.exit(0);
@@ -94,7 +94,7 @@ function parseArgs(): CliArgs {
   return {
     dataDir,
     keyFile: keyFile ?? resolve(dataDir, "cache", "workflow-encryption.key"),
-    dbPath: dbPath ?? resolve(dataDir, "jarvis.db"),
+    dbPath: dbPath ?? resolve(dataDir, "sovereign.db"),
   };
 }
 
@@ -117,10 +117,10 @@ interface ConnectionRow {
 }
 
 async function main(): Promise<void> {
-  if (process.env["JARVIS_WORKFLOW_ENCRYPTION_KEY"]) {
+  if (process.env["SOVEREIGN_WORKFLOW_ENCRYPTION_KEY"]) {
     console.error(
       [
-        "JARVIS_WORKFLOW_ENCRYPTION_KEY is set in the environment. That env var",
+        "SOVEREIGN_WORKFLOW_ENCRYPTION_KEY is set in the environment. That env var",
         "IS the key -- rotate by changing it (and restarting the daemon) rather",
         "than running this script. Unset it first if you want to switch to a",
         "file-based keychain.",
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
   // set with the NEW key -- those new rows would then be unreadable after
   // the atomic rename. The flock check probes the pid lock for the
   // *resolved* data dir so a `--data-dir` override checks the right file
-  // (not just the default `~/.jarvis/jarvis.pid`). Override the safety with
+  // (not just the default `~/.sovereign/sovereign.pid`). Override the safety with
   // `--allow-running-daemon` only if you've manually quiesced writes.
   const allowRunningDaemon = process.argv.includes("--allow-running-daemon");
   if (!allowRunningDaemon) {
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
         [
           `Daemon is running (PID ${runningPid}) against ${args.dataDir}.`,
           "Stop it before rotating:",
-          "  jarvis stop",
+          "  sovereign stop",
           "",
           "Rotating while the daemon writes to app_connection would corrupt",
           "any new rows. To override (you've manually quiesced writes), pass",

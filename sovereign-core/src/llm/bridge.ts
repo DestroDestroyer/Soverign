@@ -35,14 +35,14 @@ export interface ProviderHealth {
 /** Read the current default model from config.yaml */
 function readConfigModel(): { provider: string; model: string } {
   try {
-    if (!existsSync(CONFIG_PATH)) return { provider: 'ollama', model: 'qwen2.5:1.5b' };
+    if (!existsSync(CONFIG_PATH)) return { provider: 'ollama', model: 'sam860/falcon-h1:1.5b-deep-Q4_0' };
     const yaml = readFileSync(CONFIG_PATH, 'utf8');
     const match = yaml.match(/default:\s*"([^"]+)"/);
-    if (!match) return { provider: 'ollama', model: 'qwen2.5:1.5b' };
+    if (!match) return { provider: 'ollama', model: 'sam860/falcon-h1:1.5b-deep-Q4_0' };
     const [providerPart, ...modelParts] = match[1].split(':');
     return { provider: providerPart, model: modelParts.join(':') };
   } catch {
-    return { provider: 'ollama', model: 'qwen2.5:1.5b' };
+    return { provider: 'ollama', model: 'sam860/falcon-h1:1.5b-deep-Q4_0' };
   }
 }
 
@@ -53,16 +53,22 @@ export async function checkProviderHealth(provider: string): Promise<ProviderHea
     if (provider === 'ollama') {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: controller.signal });
-      clearTimeout(timer);
-      return { provider, ok: res.ok, latencyMs: Date.now() - start };
+      try {
+        const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: controller.signal });
+        return { provider, ok: res.ok, latencyMs: Date.now() - start };
+      } finally {
+        clearTimeout(timer);
+      }
     }
     if (provider === 'openrouter') {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch('https://openrouter.ai/api/v1/models', { signal: controller.signal });
-      clearTimeout(timer);
-      return { provider, ok: res.ok, latencyMs: Date.now() - start };
+      try {
+        const res = await fetch('https://openrouter.ai/api/v1/models', { signal: controller.signal });
+        return { provider, ok: res.ok, latencyMs: Date.now() - start };
+      } finally {
+        clearTimeout(timer);
+      }
     }
     // Cloud providers assumed available if network is up
     return { provider, ok: true, latencyMs: Date.now() - start };

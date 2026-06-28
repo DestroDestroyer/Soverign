@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * CLI: build the workflow runtime in one go -- every Jarvis piece's
+ * CLI: build the workflow runtime in one go -- every Sovereign piece's
  * `dist/src/index.js` AND the activepieces engine bundle. Both are
  * needed for catalog metadata extraction to see fresh source: the
  * engine reads compiled pieces via dev-pieces mode, and the engine
@@ -30,7 +30,7 @@ const piecesStart = Date.now();
 const pieces = await buildAllSovereignPieces({ force });
 const piecesElapsed = Date.now() - piecesStart;
 if (pieces.length === 0) {
-  console.log("  (no Jarvis pieces found)");
+  console.log("  (no Sovereign pieces found)");
 } else {
   let builtCount = 0;
   let cachedCount = 0;

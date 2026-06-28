@@ -39,7 +39,7 @@ async function build() {
   // Determine output directory
   let outputDir: string;
   if (winHome) {
-    outputDir = await bridge.convertToWindowsPath(join(winHome, '.jarvis', 'sidecar'));
+    outputDir = await bridge.convertToWindowsPath(join(winHome, '.sovereign', 'sidecar'));
   } else {
     // Fallback: output next to project
     outputDir = await bridge.convertToWindowsPath(join(SIDECAR_DIR, 'bin', 'publish'));

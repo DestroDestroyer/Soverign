@@ -15,7 +15,7 @@ export class ClipboardMonitor implements Observer {
   private running = false;
   private pollMs: number;
 
-  constructor(pollMs: number = 1000) {
+  constructor(pollMs: number = 10000) {
     this.pollMs = pollMs;
   }
 

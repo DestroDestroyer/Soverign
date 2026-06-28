@@ -142,9 +142,12 @@ export class BrowserController {
     let pageTarget = targets.find(t => t.type === 'page');
 
     if (!pageTarget) {
-      // Create a new tab
-      const newRes = await fetch(`http://127.0.0.1:${this.port}/json/new?about:blank`);
-      pageTarget = await newRes.json() as any;
+      try {
+        const newRes = await fetch(`http://127.0.0.1:${this.port}/json/new?about:blank`);
+        pageTarget = await newRes.json() as any;
+      } catch (err) {
+        throw new Error(`Failed to create page tab: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     if (!pageTarget?.webSocketDebuggerUrl) {

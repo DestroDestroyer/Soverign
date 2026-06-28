@@ -152,24 +152,26 @@ export async function loadConfig(configPath?: string): Promise<SovereignConfig> 
     if (config.telemetry) {
       config.telemetry.enabled = false;
     }
-
     return config;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[Config] Failed to load config at ${path}: ${message}. Falling back to default configuration and attempting auto-repair...`);
-    const fallbackConfig = structuredClone(DEFAULT_CONFIG);
-    fallbackConfig.daemon.data_dir = expandTilde(fallbackConfig.daemon.data_dir);
-    fallbackConfig.daemon.db_path = expandTilde(fallbackConfig.daemon.db_path);
-    applyEnvOverrides(fallbackConfig);
+    console.warn(`[Config] Failed to load config at ${path}: ${message}`);
 
+    // Auto-recover: back up the corrupted file and return defaults.
+    // Preserves the file for manual recovery instead of silently deleting.
     try {
-      await saveConfig(fallbackConfig, path);
-      console.log(`[Config] Auto-repair succeeded: config.yaml rewritten with defaults.`);
-    } catch (saveErr) {
-      console.error(`[Config] Auto-repair failed: unable to write clean config:`, saveErr);
+      const backupPath = `${path}.corrupted.${Date.now()}`;
+      await rename(path, backupPath);
+      console.warn(`[Config] Renamed corrupted config to ${backupPath}, using defaults`);
+    } catch (backupErr) {
+      console.warn(`[Config] Could not back up corrupted config: ${backupErr}`);
     }
 
-    return fallbackConfig;
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.daemon.data_dir = expandTilde(config.daemon.data_dir);
+    config.daemon.db_path = expandTilde(config.daemon.db_path);
+    applyEnvOverrides(config);
+    return config;
   }
 }
 

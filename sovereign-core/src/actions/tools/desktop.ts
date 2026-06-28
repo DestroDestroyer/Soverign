@@ -93,17 +93,20 @@ function formatWindows(windows: WindowInfo[]): string {
     .join('\n');
 }
 
+const MAX_FLATTENED_ELEMENTS = 500;
+
 function flattenElements(
   elements: UIElement[],
   depthLimit: number,
   depth: number,
   flattened: FlatSnapshotElement[],
 ): void {
-  if (depth > depthLimit) {
+  if (depth > depthLimit || flattened.length >= MAX_FLATTENED_ELEMENTS) {
     return;
   }
 
   for (const element of elements) {
+    if (flattened.length >= MAX_FLATTENED_ELEMENTS) break;
     const numericId = flattened.length + 1;
     localElementCache.set(numericId, element);
     flattened.push({

@@ -23,9 +23,9 @@ import { REALTIME_URL, buildSessionUpdate } from '../src/comms/realtime.ts';
 import type { ResolvedRealtimeVoice } from '../src/config/realtime.ts';
 import type { RealtimeReasoningEffort } from '../src/config/types.ts';
 
-const key = (process.env.OPENAI_API_KEY || process.env.JARVIS_OPENAI_KEY || '').trim();
+const key = (process.env.OPENAI_API_KEY || process.env.SOVEREIGN_OPENAI_KEY || '').trim();
 if (!key) {
-  console.error('✗ No API key. Set OPENAI_API_KEY (or JARVIS_OPENAI_KEY) and retry.');
+  console.error('✗ No API key. Set OPENAI_API_KEY (or SOVEREIGN_OPENAI_KEY) and retry.');
   process.exit(1);
 }
 

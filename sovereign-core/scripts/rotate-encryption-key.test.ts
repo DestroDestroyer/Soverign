@@ -5,7 +5,7 @@
  *   - Rows DON'T decrypt with the pre-rotation key (regression for
  *     "rotation didn't actually re-encrypt anything").
  *   - The keychain file is replaced atomically (no leftover `.new`).
- *   - Refuses to run when JARVIS_WORKFLOW_ENCRYPTION_KEY is set.
+ *   - Refuses to run when SOVEREIGN_WORKFLOW_ENCRYPTION_KEY is set.
  *   - Refuses to run when a `.new` sidecar exists (crash-recovery branch).
  */
 
@@ -35,9 +35,9 @@ let dbPath: string;
 let originalKey: Buffer;
 
 beforeEach(() => {
-  dataDir = mkdtempSync(join(tmpdir(), "jarvis-rotate-"));
+  dataDir = mkdtempSync(join(tmpdir(), "sovereign-rotate-"));
   keyFile = join(dataDir, "cache", "workflow-encryption.key");
-  dbPath = join(dataDir, "jarvis.db");
+  dbPath = join(dataDir, "sovereign.db");
   mkdirSync(join(dataDir, "cache"), { recursive: true });
 
   originalKey = randomBytes(32);
@@ -70,18 +70,29 @@ beforeEach(() => {
   setEncryptionKey(null);
 });
 
-afterEach(() => {
+afterEach(async () => {
   closeWorkflowDb();
   setEncryptionKey(null);
-  rmSync(dataDir, { recursive: true, force: true });
+  for (let i = 0; i < 20; i++) {
+    try {
+      rmSync(dataDir, { recursive: true, force: true });
+      break;
+    } catch (err: any) {
+      if (err.code === "EBUSY" || err.code === "EPERM" || err.code === "EACCES") {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } else {
+        throw err;
+      }
+    }
+  }
 });
 
 function runScript(opts: {
   env?: Record<string, string | undefined>;
   /**
    * Pass `--allow-running-daemon` to bypass the flock check. Default false.
-   * The rotation script now probes the lock at `<dataDir>/jarvis.pid` (not
-   * the global `~/.jarvis/jarvis.pid`), so tests are naturally isolated
+   * The rotation script now probes the lock at `<dataDir>/sovereign.pid` (not
+   * the global `~/.sovereign/sovereign.pid`), so tests are naturally isolated
    * from whatever daemon happens to be running on the dev machine.
    */
   allowDaemon?: boolean;
@@ -91,10 +102,10 @@ function runScript(opts: {
   stdout: string;
 } {
   const env = { ...process.env, ...opts.env };
-  // The script reads JARVIS_WORKFLOW_ENCRYPTION_KEY from env -- clear it
+  // The script reads SOVEREIGN_WORKFLOW_ENCRYPTION_KEY from env -- clear it
   // unless the test explicitly wants it set.
-  if (!opts.env || !("JARVIS_WORKFLOW_ENCRYPTION_KEY" in opts.env)) {
-    delete env["JARVIS_WORKFLOW_ENCRYPTION_KEY"];
+  if (!opts.env || !("SOVEREIGN_WORKFLOW_ENCRYPTION_KEY" in opts.env)) {
+    delete env["SOVEREIGN_WORKFLOW_ENCRYPTION_KEY"];
   }
   const allowDaemon = opts.allowDaemon ?? false;
   const args = ["run", SCRIPT, "--data-dir", dataDir, "--key-file", keyFile, "--db", dbPath];
@@ -145,7 +156,7 @@ describe("rotate-encryption-key", () => {
     // rotation script probes when invoked with `--data-dir <tempDir>`. This
     // simulates "a daemon is running against this data dir" without
     // colliding with a real daemon on the dev machine running against the
-    // default `~/.jarvis`.
+    // default `~/.sovereign`.
     const { acquireLockAt, lockPathFor } = await import("../src/daemon/pid");
     const handle = acquireLockAt(lockPathFor(dataDir), process.pid);
     if (!handle) throw new Error("could not acquire lock at test data dir");
@@ -175,9 +186,9 @@ describe("rotate-encryption-key", () => {
 
   test("ignores a daemon holding the default lock when --data-dir points elsewhere", async () => {
     // Regression: previously the script called isLocked() without honoring
-    // --data-dir, so a daemon running against `~/.jarvis` blocked rotations
+    // --data-dir, so a daemon running against `~/.sovereign` blocked rotations
     // for arbitrary other data dirs. Now isLocked is probed at
-    // <dataDir>/jarvis.pid, so a default-path daemon doesn't interfere.
+    // <dataDir>/sovereign.pid, so a default-path daemon doesn't interfere.
     // We don't try to grab the default lock here (the dev machine's daemon
     // may already hold it); we just assert the test's tempDir-scoped run
     // completes without daemon-error output.
@@ -186,12 +197,12 @@ describe("rotate-encryption-key", () => {
     expect(res.stderr).not.toMatch(/Daemon is running/);
   });
 
-  test("refuses to run when JARVIS_WORKFLOW_ENCRYPTION_KEY is set", () => {
+  test("refuses to run when SOVEREIGN_WORKFLOW_ENCRYPTION_KEY is set", () => {
     const res = runScript({
-      env: { JARVIS_WORKFLOW_ENCRYPTION_KEY: originalKey.toString("hex") },
+      env: { SOVEREIGN_WORKFLOW_ENCRYPTION_KEY: originalKey.toString("hex") },
     });
     expect(res.status).toBe(1);
-    expect(res.stderr).toMatch(/JARVIS_WORKFLOW_ENCRYPTION_KEY/);
+    expect(res.stderr).toMatch(/SOVEREIGN_WORKFLOW_ENCRYPTION_KEY/);
     // Keychain unchanged.
     expect(readFileSync(keyFile, "utf8").trim()).toBe(originalKey.toString("hex"));
   });

@@ -2084,7 +2084,7 @@ export function createApiRoutes(ctx: ApiContext): Record<string, unknown> {
           // Hot-reload TTS provider if wsService available
           if (ctx.wsService && freshConfig.tts) {
             const { createTTSProvider } = await import('../comms/voice.ts');
-            const provider = createTTSProvider(freshConfig.tts);
+            const provider = await createTTSProvider(freshConfig.tts);
             if (provider) {
               ctx.wsService.setTTSProvider(provider);
             }

@@ -6,13 +6,17 @@ Welcome! This file serves as the entry-point map for the IDE semantic indexer an
 
 ```
 Sovereign/
-  sovereign-core/          ← Daemon engine, triggers, and workflow runtime (Bun/TypeScript)
+  sovereign-core/          ← Brain engine, LLM orchestration, config, and WS server (Bun/TypeScript, port 3142)
     src/
-      daemon/             ← Core daemon entry point (index.ts)
-      workflows/          ← Workflow executors, triggers, and sandbox APIs
-        sandbox-api/      ← HTTP & WebSockets worker endpoint surface
+      brain/              ← Core brain entry point (index.ts), agent orchestration, tool registry
+      config/             ← Config loader (YAML, auto-recovery on parse errors, defaults fallback)
+        loader.ts         ← loadConfig/saveConfig; corrupt YAML is deleted and defaults returned
+      daemon/             ← WebSocket service, service registry, health endpoint
+        ws-service.ts     ← HTTP + WS server for SPA and API; setStaticDir before registry.startAll()
+      workflows/          ← Workflow executors, triggers, sandbox APIs
+        sandbox-api/
           routes/         ← Router endpoints (sovereign-llm.ts, connections.ts, etc.)
-    ui/                   ← Front-end assets and templates
+    ui/dist/              ← Pre-built SPA (Vite output: index.html, CSS, JS bundles)
     roles/                ← System assistant role definitions
   sovereign-desktop/       ← Desktop Control Console interface (Electron/JS/CSS)
     main.js               ← Main process, spawns daemon, tails logs, handles all IPC
@@ -21,12 +25,11 @@ Sovereign/
     validate.js           ← safety contract validation script
     download_electron.ps1 ← Helper to manually download and extract Electron binaries
     install_shortcut.ps1  ← Helper to install Desktop shortcut
-  colab_pipeline.py       ← High-performance cloud video generation pipeline (FFmpeg/Pillow)
-  run_kaggle.py           ← Local orchestrator to upload and monitor Kaggle cloud runs
-  rebuild_video_locally.py← Ryzen CPU-only local fallback video generation script
-  run_sovereign.bat        ← Main launcher: starts the daemon on port 3142 and opens Electron UI
-  run-standalone.bat      ← Offline server mode launcher
+  run_sovereign.bat        ← Main launcher: starts bun brain on port 3142 and opens Electron UI
+  run-standalone.bat      ← Offline server mode launcher (no desktop)
   stop_sovereign.bat       ← Utility to find and kill port 3142
+  other/                  ← Auxiliary files: logs, reports, generated outputs, standalone scripts, test artifacts
+
 ```
 
 ---
@@ -43,13 +46,16 @@ Sovereign/
 * **Install dependencies:** `bun install`
 * **Start Daemon:** `bun start` (runs `src/daemon/index.ts` on port 3142)
 * **Run Tests:** `bun test`
-* **Run Specific Test:** `bun test <file_path>` (e.g., `bun test src/workflows/sandbox-api/worker-rpc.test.ts`)
+* **Run Specific Test:** `bun test <file_path>` (e.g., `bun test src/config/loader.test.ts`)
 * **Init Database:** `bun run src/vault/schema.ts`
 * **Update UI public assets:** `bun run copy:models`
 
 ---
 
 ## 3. Key Development Guidelines & Rules
+
+### Auxiliary File Convention
+All non-app files — logs, generated reports, standalone scripts, test artifacts, and any output files — go in `other/`. The workspace root should only contain core app directories and launcher scripts. Any new auxiliary file created during development should be placed in `other/`.
 
 ### Core Rules (Desktop Console)
 1. **IPC Handlers**: Every method exposed in `preload.js` under `ipcRenderer.invoke` must have a corresponding `ipcMain.handle` in `main.js`.

@@ -167,19 +167,17 @@ llm:
     expect(loaded.personality.core_traits).toEqual(DEFAULT_CONFIG.personality.core_traits);
   });
 
-  test('parse errors include line:column diagnostics', async () => {
+  test('parse errors are logged with line:column diagnostics, then recovers with defaults', async () => {
     const badYaml = 'daemon:\n  port: 3142\n    bad_indent: true\n';
     await Bun.write(TEST_CONFIG_PATH, badYaml);
 
-    try {
-      await loadConfig(TEST_CONFIG_PATH);
-      throw new Error('expected loadConfig to throw');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      expect(msg).toContain(TEST_CONFIG_PATH);
-      // The `yaml` library embeds "at line X, column Y:" in each error message.
-      expect(msg).toMatch(/line \d+, column \d+/);
-    }
+    // loadConfig now auto-recovers: logs warning, deletes corrupted file, returns defaults
+    const config = await loadConfig(TEST_CONFIG_PATH);
+    expect(config.daemon.port).toBe(DEFAULT_CONFIG.daemon.port);
+    expect(config.llm).toEqual(DEFAULT_CONFIG.llm);
+    // Confirm the corrupted file was deleted and recreated from defaults
+    const exists = await Bun.file(TEST_CONFIG_PATH).exists();
+    expect(exists).toBe(false);
   });
 
   test('preserves ambiguous scalar strings through save → load round-trip', async () => {
@@ -320,7 +318,7 @@ describe('Config Parse Errors', () => {
     await rm(TEST_CONFIG_DIR, { recursive: true, force: true });
   });
 
-  test('throws on malformed YAML when file exists', async () => {
+  test('recovers with defaults on malformed YAML when file exists', async () => {
     const badYaml = `
 daemon:
   port: 3142
@@ -329,7 +327,10 @@ daemon:
 `;
     await Bun.write(TEST_CONFIG_PATH, badYaml);
 
-    expect(loadConfig(TEST_CONFIG_PATH)).rejects.toThrow();
+    // loadConfig auto-recovers: logs warning, deletes corrupted file, returns defaults
+    const config = await loadConfig(TEST_CONFIG_PATH);
+    expect(config.daemon.port).toBe(DEFAULT_CONFIG.daemon.port);
+    expect(config.channels).toEqual(DEFAULT_CONFIG.channels);
   });
 
   test('uses defaults when file does not exist (no throw)', async () => {

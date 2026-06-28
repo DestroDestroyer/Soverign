@@ -1024,72 +1024,60 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
       // Set up streaming TTS: speak sentences as they arrive
       const ttsActive = !!(this.ttsProvider && ws);
       let ttsSentenceQueue: string[] = [];
+      const TTS_QUEUE_CAP = 100;
       let ttsSpeaking = false;
       let ttsStartSent = false;
       let ttsStreamFullyDone = false; // set AFTER relayStream returns, not per-turn 'done'
       let ttsSentenceCount = 0;
       let ttsChunkCount = 0;
 
+      const safeSendToClient = (type: string, payload: Record<string, unknown>, extra?: Record<string, unknown>) => {
+        if (!ws) return;
+        try {
+          this.wsServer.sendToClient(ws, { type, payload, ...extra, timestamp: Date.now() } as any);
+        } catch { /* socket may have closed */ }
+      };
+
       const speakNextSentence = async () => {
         if (ttsSpeaking || !ttsActive || !ws) return;
         const sentence = ttsSentenceQueue.shift();
         if (!sentence) {
-          // Queue empty — send tts_end only if stream is fully done
           if (ttsStreamFullyDone && ttsStartSent) {
             console.log(`[WSService] TTS complete: ${ttsSentenceCount} sentences, ${ttsChunkCount} audio chunks`);
-            this.wsServer.sendToClient(ws, {
-              type: 'tts_end',
-              payload: { requestId },
-              id: requestId,
-              timestamp: Date.now(),
-            });
-            ttsStartSent = false; // prevent duplicate tts_end
+            safeSendToClient('tts_end', { requestId }, { id: requestId });
+            ttsStartSent = false;
           }
           return;
         }
 
-        // Wake-phrase self-trigger guard: tell the UI whether this
-        // sentence contains "Sovereign" so it can suppress the wake
-        // recognizer for the duration of the audio (otherwise TTS
-        // playback echoes through the mic and self-triggers).
         const sentenceHasWake = containsWakePhrase(sentence);
 
-        // Send tts_start exactly once before the first audio chunk
         if (!ttsStartSent) {
           ttsStartSent = true;
-          this.wsServer.sendToClient(ws, {
-            type: 'tts_start',
-            payload: { requestId, containsWake: sentenceHasWake },
-            id: requestId,
-            timestamp: Date.now(),
-          });
+          safeSendToClient('tts_start', { requestId, containsWake: sentenceHasWake }, { id: requestId });
         } else if (sentenceHasWake) {
-          // Subsequent sentence in the same turn that contains "Sovereign" —
-          // notify so the UI can flip suppression on mid-turn. (We never
-          // un-suppress mid-turn because earlier audio with "Sovereign" may
-          // still be in the speaker buffer.)
-          this.wsServer.sendToClient(ws, {
-            type: 'tts_text',
-            payload: { requestId, containsWake: true },
-            id: requestId,
-            timestamp: Date.now(),
-          });
+          safeSendToClient('tts_text', { requestId, containsWake: true }, { id: requestId });
         }
 
         ttsSpeaking = true;
         ttsSentenceCount++;
-        try {
-          if (this.ttsProvider) {
-            for await (const chunk of this.ttsProvider.synthesizeStream(sentence)) {
-              ttsChunkCount++;
-              this.wsServer.sendBinary(ws, chunk);
-            }
+      try {
+        if (this.ttsProvider) {
+          const TTS_TIMEOUT_MS = 15000;
+          let timedOut = false;
+          const timer = setTimeout(() => { timedOut = true; }, TTS_TIMEOUT_MS);
+          for await (const chunk of this.ttsProvider.synthesizeStream(sentence)) {
+            if (timedOut) break;
+            ttsChunkCount++;
+            try { this.wsServer.sendBinary(ws, chunk); } catch { /* socket may have closed */ }
           }
-        } catch (err) {
-          console.error('[WSService] TTS sentence error:', err);
+          clearTimeout(timer);
         }
+      } catch (err) {
+        console.error('[WSService] TTS sentence error:', err);
+      }
         ttsSpeaking = false;
-        speakNextSentence();
+        speakNextSentence().catch(() => {});
       };
 
       // Relay stream to all WebSocket clients, collect full text.
@@ -1098,7 +1086,7 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
       // We ignore onTextDone and use the relayStream return to mark stream completion.
       const fullText = await this.streamRelay.relayStream(stream, requestId, ttsActive ? {
         onSentence: (sentence) => {
-          ttsSentenceQueue.push(sentence);
+          if (ttsSentenceQueue.length < TTS_QUEUE_CAP) ttsSentenceQueue.push(sentence);
           speakNextSentence();
         },
       } : undefined);
@@ -1297,15 +1285,12 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
         if (nav !== null) return Promise.resolve(nav);
         return orchestrator.executeRealtimeToolCall(name, args, { blockedCategories: resolved.blockedCategories });
       },
-      onTranscript: (t) =>
-        this.wsServer.sendToClient(ws, {
-          type: 'realtime_transcript',
-          payload: { role: t.role, text: t.text, final: t.final },
-          timestamp: Date.now(),
-        }),
+      onTranscript: (t) => {
+        try { this.wsServer.sendToClient(ws, { type: 'realtime_transcript', payload: { role: t.role, text: t.text, final: t.final }, timestamp: Date.now() }); } catch { /* socket may have closed */ }
+      },
       onError: (err) => {
         console.error('[WSService] realtime voice error:', err);
-        this.wsServer.sendToClient(ws, { type: 'realtime_status', payload: { state: 'error', message: err }, timestamp: Date.now() });
+        try { this.wsServer.sendToClient(ws, { type: 'realtime_status', payload: { state: 'error', message: err }, timestamp: Date.now() }); } catch { /* socket may have closed */ }
       },
       onClose: () => this.closeRealtimeVoice(ws),
     });
@@ -1317,7 +1302,7 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
 
     this.realtimeSessions.set(ws, { session, transport, timeout, startedAt: Date.now() });
     session.connect().then(
-      () => this.wsServer.sendToClient(ws, { type: 'realtime_status', payload: { state: 'live', model: resolved.model }, timestamp: Date.now() }),
+      () => { try { this.wsServer.sendToClient(ws, { type: 'realtime_status', payload: { state: 'live', model: resolved.model }, timestamp: Date.now() }); } catch { /* socket may have closed */ } },
       (err) => {
         console.error('[WSService] realtime connect failed:', err);
         this.closeRealtimeVoice(ws);
@@ -1504,44 +1489,26 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
         });
         ttsStarted = true;
         for await (const chunk of this.ttsProvider.synthesizeStream(text)) {
-          this.wsServer.sendBinary(ws, chunk);
+          try { this.wsServer.sendBinary(ws, chunk); } catch { /* socket may have closed */ }
         }
       } catch (err) {
         console.warn('[WSService] Interview TTS failed:', err);
       } finally {
-        // Always close the TTS frame once it was opened — a synthesis
-        // failure mid-stream must not leave the UI waiting forever.
         if (ttsStarted) {
-          this.wsServer.sendToClient(ws, {
-            type: 'tts_end',
-            payload: { requestId },
-            id: requestId,
-            timestamp: Date.now(),
-          });
+          try { this.wsServer.sendToClient(ws, { type: 'tts_end', payload: { requestId }, id: requestId, timestamp: Date.now() }); } catch { /* socket may have closed */ }
         }
       }
     }
 
     if (result.done) {
-      this.wsServer.sendToClient(ws, {
-        type: 'interview_done',
-        payload: {
-          farewell: result.farewell,
-          facts_recorded: result.factsRecorded,
-        },
-        timestamp: Date.now(),
-      });
+      try { this.wsServer.sendToClient(ws, { type: 'interview_done', payload: { farewell: result.farewell, facts_recorded: result.factsRecorded }, timestamp: Date.now() }); } catch { /* socket may have closed */ }
       this.interviewSessions.delete(ws);
     }
   }
 
   private async handleVoiceSession(session: VoiceSession, ws: ServerWebSocket<unknown>): Promise<void> {
     if (!this.sttProvider) {
-      this.wsServer.sendToClient(ws, {
-        type: 'error',
-        payload: { message: 'STT not configured. Enable it in Settings > Channels.' },
-        timestamp: Date.now(),
-      });
+      try { this.wsServer.sendToClient(ws, { type: 'error', payload: { message: 'STT not configured. Enable it in Settings > Channels.' }, timestamp: Date.now() }); } catch { /* socket may have closed */ }
       return;
     }
 

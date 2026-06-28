@@ -1,628 +1,784 @@
-// ── Toast Notification System ────────────────────────────────────────────────
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toast-container') || (() => {
-    const el = document.createElement('div');
-    el.id = 'toast-container';
-    document.body.appendChild(el);
-    return el;
-  })();
+import { showToast } from './components/toast.js';
 
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warn' ? '⚠' : 'ℹ'}</span>
-    <span class="toast-msg">${message}</span>
-    <button class="toast-close">×</button>
-  `;
-  container.appendChild(toast);
-  
-  const delay = type === 'error' || type === 'warn' ? 5000 : 3000;
-  const timeoutId = setTimeout(() => {
-    if (toast.parentNode) {
-      toast.remove();
-    }
-  }, delay);
+// ── DOM elements ───────────────────────────────────────────
+// Header
+const hdrBrainDot = document.getElementById('brain-status-dot-hdr');
+const hdrBrainText = document.getElementById('brain-status-text-hdr');
+const btnStartBrain = document.getElementById('btn-start-brain');
+const btnStopBrain = document.getElementById('btn-stop-brain');
+const btnReload = document.getElementById('btn-reload-webview');
+const btnToggleLogs = document.getElementById('btn-toggle-logs');
+const btnSettingsGear = document.getElementById('btn-settings-gear');
 
-  const closeBtn = toast.querySelector('.toast-close');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      clearTimeout(timeoutId);
-      toast.remove();
-    });
-  }
-}
-window.showToast = showToast;
-
-// ── DOM elements ──────────────────────────────────────────────────────────────
-const daemonStatusDot  = document.getElementById('daemon-status-dot');
-const daemonStatusText = document.getElementById('daemon-status-text');
-const btnStartDaemon   = document.getElementById('btn-start-daemon');
-const btnStopDaemon    = document.getElementById('btn-stop-daemon');
-
-// Health panel
-const healthStatusDot  = document.getElementById('health-status-dot');
-const healthStatusText = document.getElementById('health-status-text');
-
-// Model & API Elements
-const selModelProvider       = document.getElementById('sel-model-provider');
-const apiKeyContainer        = document.getElementById('api-key-container');
-const apiKeyInput            = document.getElementById('api-key-input');
-const btnToggleKeyVisibility = document.getElementById('btn-toggle-key-visibility');
-const customModelContainer   = document.getElementById('custom-model-container');
-const customModelInput       = document.getElementById('custom-model-input');
-const btnSaveApiConfig       = document.getElementById('btn-save-api-config');
-
-// Model Downloader & Claude Code
-const txtPullModel       = document.getElementById('txt-pull-model');
-const btnPullModel       = document.getElementById('btn-pull-model');
-const btnLaunchClaudeWin = document.getElementById('btn-launch-claude-win');
-const localModelsList    = document.getElementById('local-models-list');
-const btnRefreshLocalModels = document.getElementById('btn-refresh-local-models');
-
-// Boot / splash elements
-const bootLoadingContainer = document.getElementById('boot-loading-container');
-const bootStatusText       = document.getElementById('boot-status-text');
-const bootTimer            = document.getElementById('boot-timer');
-const bootProgressBar      = document.getElementById('boot-progress-bar');
-
-// Top bar / layout controls
-const btnStartAll       = document.getElementById('btn-start-all');
-const btnReloadWebview  = document.getElementById('btn-reload-webview');
-const btnToggleLogs     = document.getElementById('btn-toggle-logs');
-const btnToggleSidebar  = document.getElementById('btn-toggle-sidebar');
-const btnCloseLogs      = document.getElementById('btn-close-logs');
-const btnClearLogs      = document.getElementById('btn-clear-logs');
-const btnSettings       = document.getElementById('btn-settings');
-const btnCloseSettings  = document.getElementById('btn-close-settings');
-const btnSaveSettings   = document.getElementById('btn-save-settings');
-
-// Service management
-const btnInstallService   = document.getElementById('btn-install-service');
-const btnUninstallService = document.getElementById('btn-uninstall-service');
-const serviceStatusText   = document.getElementById('service-status');
-
-// Focus mode
-const btnStartFocus = document.getElementById('btn-start-focus');
-const btnStopFocus  = document.getElementById('btn-stop-focus');
-
-// Checkboxes / misc
-const chkUseQwen     = document.getElementById('chk-use-qwen');
-const chkAutoCorrect = document.getElementById('chk-auto-correct');
-
-// Views
-const splashView    = document.getElementById('splash-view');
+// Dashboard / splash
+const splashView = document.getElementById('splash-view');
 const dashboardView = document.getElementById('dashboard-view');
-const settingsView  = document.getElementById('settings-view');
-const logsDrawer    = document.getElementById('logs-drawer');
 const btnBootSystem = document.getElementById('btn-boot-system');
-
 const sovereignWebview = document.getElementById('sovereign-webview');
 
-// Advanced settings
-const bunPathInput  = document.getElementById('bun-path-input');
-const chkAutoDaemon = document.getElementById('chk-auto-daemon');
-const sysInfoText   = document.getElementById('sys-info-text');
+// Boot progress
+const bootLoadingContainer = document.getElementById('boot-loading-container');
+const bootStatusText = document.getElementById('boot-status-text');
+const bootTimer = document.getElementById('boot-timer');
+const bootProgressBar = document.getElementById('boot-progress-bar');
 
-// Terminal / drawer
+// Brain chat (fallback)
+const brainChatInput = document.getElementById('brain-chat-input');
+const brainChatSend = document.getElementById('brain-chat-send');
+const brainChatMsg = document.getElementById('brain-chat-messages');
+
+// Logs
+const logsDrawer = document.getElementById('logs-drawer');
 const daemonTerminal = document.getElementById('daemon-terminal');
-const drawerTabs     = document.querySelectorAll('.drawer-tab');
-const tabContents    = document.querySelectorAll('.tab-content');
+const btnCloseLogs = document.getElementById('btn-close-logs');
+const btnClearLogs = document.getElementById('btn-clear-logs');
 
-// ── App state ─────────────────────────────────────────────────────────────────
-let appConfig             = null;
-let daemonRunning         = false;
-let activeTab             = 'daemon-logs';
-let webviewLoaded         = false;
+// Settings
+const settingsPanel = document.getElementById('settings-panel');
+const btnCloseSettings = document.getElementById('btn-close-settings');
+
+// Settings - General
+const bunPathInput = document.getElementById('bun-path-input');
+const chkAutoDaemon = document.getElementById('chk-auto-daemon');
+const btnScanHw = document.getElementById('btn-scan-hw');
+const hwInfoSettings = document.getElementById('hw-info-settings');
+const spBrainDot = document.getElementById('sp-brain-dot');
+const spBrainText = document.getElementById('sp-brain-text');
+const spHealthDot = document.getElementById('sp-health-dot');
+const spHealthText = document.getElementById('sp-health-text');
+const spServiceDot = document.getElementById('sp-service-dot');
+const spServiceText = document.getElementById('sp-service-text');
+
+// Settings - Models
+const selLlmProvider = document.getElementById('sel-llm-provider');
+const fieldApiKey = document.getElementById('field-api-key');
+const apiKeyInput = document.getElementById('api-key-input');
+const btnToggleKeyVis = document.getElementById('btn-toggle-key-vis');
+const customModelInput = document.getElementById('custom-model-input');
+const btnSaveApiConfig = document.getElementById('btn-save-api-config');
+const fieldLocalGguf = document.getElementById('field-local-gguf');
+const txtPullModel = document.getElementById('txt-pull-model');
+const btnPullModel = document.getElementById('btn-pull-model');
+const btnRefreshOllama = document.getElementById('btn-refresh-ollama');
+const ollamaModelsList = document.getElementById('ollama-models-list');
+const selOllamaModel = document.getElementById('sel-ollama-model');
+const btnSetOllamaDefault = document.getElementById('btn-set-ollama-default');
+const ollamaCurrentDefault = document.getElementById('ollama-current-default');
+const btnLaunchClaude = document.getElementById('btn-launch-claude');
+const ollamaServerStatus = document.getElementById('ollama-server-status');
+const localModelsListSettings = document.getElementById('local-models-list-settings');
+
+// Settings - STT
+const selSttProvider = document.getElementById('sel-stt-provider');
+const sttApiKeyContainer = document.getElementById('stt-api-key-container');
+const sttEndpointContainer = document.getElementById('stt-endpoint-container');
+const sttApiKey = document.getElementById('stt-api-key');
+const sttEndpoint = document.getElementById('stt-endpoint');
+const sttModel = document.getElementById('stt-model');
+const sttStatus = document.getElementById('stt-status');
+const btnSaveStt = document.getElementById('btn-save-stt');
+
+// Settings - TTS
+const chkTtsEnabled = document.getElementById('chk-tts-enabled');
+const selTtsProvider = document.getElementById('sel-tts-provider');
+const selTtsVoice = document.getElementById('sel-tts-voice');
+const ttsEndpoint = document.getElementById('tts-endpoint');
+const ttsApiKey = document.getElementById('tts-api-key');
+const ttsVoiceModel = document.getElementById('tts-voice-model');
+const ttsStatus = document.getElementById('tts-status');
+const btnSaveTts = document.getElementById('btn-save-tts');
+
+// Settings - Service
+const btnInstallService = document.getElementById('btn-install-service');
+const btnUninstallService = document.getElementById('btn-uninstall-service');
+const serviceStatusText = document.getElementById('service-status');
+const btnVerifyDownload = document.getElementById('btn-verify-download');
+const verifyStatus = document.getElementById('verify-status');
+
+// Settings - Advanced
+const sysInfoText = document.getElementById('sys-info-text');
+const btnStartFocus = document.getElementById('btn-start-focus');
+const btnStopFocus = document.getElementById('btn-stop-focus');
+const chkUseQwen = document.getElementById('chk-use-qwen');
+const chkAutoCorrect = document.getElementById('chk-auto-correct');
+
+// ── App state ──────────────────────────────────────────────
+const appStartTime = Date.now();
+let appConfig = null;
+let daemonRunning = false;
+let brainRunning = false;
+let brainStarting = false;
 let statusCheckInProgress = false;
+let webviewLoaded = false;
 
-// ── Provider default model map ────────────────────────────────────────────────
-const PROVIDER_DEFAULTS = {
-  'ollama-local':    { placeholder: 'e.g. qwen2.5:1.5b, phi3:mini, mistral', needsKey: false },
-  'anthropic-cloud': { placeholder: 'e.g. claude-3-5-haiku-latest',          needsKey: true  },
-  'gemini-cloud':    { placeholder: 'e.g. gemini-1.5-flash',                  needsKey: true  },
-  'openai-cloud':    { placeholder: 'e.g. gpt-4o-mini',                       needsKey: true  },
-  'openrouter-cloud':{ placeholder: 'e.g. qwen/qwen-2.5-coder-1.5b-instruct:free', needsKey: true },
-  'groq-cloud':      { placeholder: 'e.g. llama-3.3-70b-versatile',           needsKey: true  },
-  'nvidia-cloud':    { placeholder: 'e.g. meta/llama-3.1-70b-instruct',       needsKey: true  },
-};
-
-// ── Initialize app ────────────────────────────────────────────────────────────
+// ── Init ───────────────────────────────────────────────────
 async function init() {
-  appConfig = await window.api.getConfig();
+  const { getConfig } = await import('./components/api.js');
+  appConfig = await getConfig();
 
-  // Populate advanced settings
-  if (bunPathInput) bunPathInput.value    = appConfig.bunPath || 'bun';
+  if (bunPathInput) bunPathInput.value = appConfig.bunPath || 'bun';
   if (chkAutoDaemon) chkAutoDaemon.checked = appConfig.autoStartDaemon !== false;
 
-  // Populate API configuration
+  // Populate API config
   const apiConfig = await window.api.getApiConfig();
-  if (selModelProvider) selModelProvider.value = apiConfig.provider;
-  if (apiKeyInput) apiKeyInput.value      = apiConfig.apiKey;
-  if (customModelInput) customModelInput.value = apiConfig.customModel;
-  updateProviderFields();
+  if (selLlmProvider) selLlmProvider.value = (apiConfig && apiConfig.provider) ? apiConfig.provider : 'ollama';
+  if (apiKeyInput) apiKeyInput.value = (apiConfig && apiConfig.apiKey) || '';
+  if (customModelInput) customModelInput.value = (apiConfig && apiConfig.customModel) || '';
+  if (apiConfig && apiConfig.customModel) updateOllamaDefaultDisplay(apiConfig.customModel);
+
+  // Load provider-specific model list
+  if (selLlmProvider) updateProviderModelList(selLlmProvider.value);
+
+  // Load STT & TTS config from brain API (fire-and-forget — don't block init)
+  window.api.getSttConfig().then(sttCfg => {
+    if (!sttCfg) return;
+    if (selSttProvider) selSttProvider.value = sttCfg.provider || 'xenova';
+    if (sttApiKey) sttApiKey.value = sttCfg.openai?.api_key || sttCfg.groq?.api_key || sttCfg.sarvam?.api_key || '';
+    if (sttEndpoint) sttEndpoint.value = sttCfg.local?.endpoint || sttCfg.openai_compatible?.endpoint || '';
+    if (sttModel) sttModel.value = sttCfg.local?.model || sttCfg.openai_compatible?.model || '';
+    toggleSttFields();
+  }).catch(() => {});
+  window.api.getTtsConfig().then(ttsCfg => {
+    if (!ttsCfg) return;
+    if (chkTtsEnabled) chkTtsEnabled.checked = ttsCfg.enabled !== false;
+    if (selTtsProvider) selTtsProvider.value = ttsCfg.provider || 'kokoro';
+    if (selTtsVoice) selTtsVoice.value = ttsCfg.voice || 'en-US-AriaNeural';
+    if (ttsEndpoint) ttsEndpoint.value = ttsCfg.openai_compatible?.endpoint || '';
+    if (ttsApiKey) ttsApiKey.value = ttsCfg.openai_compatible?.api_key || '';
+    if (ttsVoiceModel) ttsVoiceModel.value = ttsCfg.openai_compatible?.model || '';
+    updateTtsStatus();
+  }).catch(() => {});
+
+  // Apply correct field visibility for initial provider selection
+  toggleLlmFields();
+  toggleSttFields();
+  updateTtsStatus();
 
   setupEventListeners();
 
-  // Register log listener
-  window.api.onLog(({ source, text }) => {
-    appendLog(source, text);
+  window.api.onLog(({ source, text }) => appendLog(source, text));
+
+  window.api.onBrainStatus(({ running, error, starting }) => {
+    brainRunning = running;
+    if (running) brainStarting = false;
+    if (running && !webviewLoaded) loadWebview();
+    updateBrainUI(running, error, starting || brainStarting);
   });
 
-  // Initial status checks
+  window.api.onBrainEvent(({ event, data }) => {
+    if (event === 'log') appendLog('brain', data.message + '\n');
+  });
+
+  window.api.onRefreshWebview(() => {
+    if (sovereignWebview && webviewLoaded) {
+      sovereignWebview.reload();
+    }
+  });
+
+  window.api.onVerifyStatus((msg) => {
+    if (verifyStatus) verifyStatus.textContent += msg;
+  });
+
   await checkSystemStatus();
   await checkServiceStatus();
 
-  // Load local Ollama models
-  refreshLocalModels();
-
-  // Periodic status checks (concurrency-guarded)
-  setInterval(checkSystemStatus, 3000);
-
-  // Auto-start
-  if (appConfig.autoStartDaemon !== false && !daemonRunning) {
-    bootDaemon();
-  }
+  // Periodic check every 8s (was 3s — reduced for CPU)
+  const statusIntervalId = setInterval(checkSystemStatus, 8000);
+  window.__statusIntervalId = statusIntervalId;
 }
 
-// ── Event Listeners ───────────────────────────────────────────────────────────
+// ── Event Listeners ────────────────────────────────────────
 function setupEventListeners() {
-  // Daemon controls
-  if (btnStartDaemon) btnStartDaemon.addEventListener('click', bootDaemon);
+  // Header controls
+  if (btnStartBrain) btnStartBrain.addEventListener('click', bootDaemon);
   if (btnBootSystem) btnBootSystem.addEventListener('click', bootDaemon);
-  if (btnStopDaemon) btnStopDaemon.addEventListener('click', stopDaemon);
-
-  // API Config
-  if (selModelProvider) selModelProvider.addEventListener('change', updateProviderFields);
-  if (btnSaveApiConfig) btnSaveApiConfig.addEventListener('click', saveApiConfig);
-  if (btnToggleKeyVisibility) btnToggleKeyVisibility.addEventListener('click', toggleKeyVisibility);
-
-  // Model Manager
-  if (btnPullModel) btnPullModel.addEventListener('click', pullModel);
-  if (btnRefreshLocalModels) btnRefreshLocalModels.addEventListener('click', refreshLocalModels);
-
-  // Claude Code
-  if (btnLaunchClaudeWin) btnLaunchClaudeWin.addEventListener('click', () => window.api.launchClaudeWin());
-
-  // Hardware scan
-  const btnScanHardware = document.getElementById('btn-scan-hardware');
-  if (btnScanHardware) btnScanHardware.addEventListener('click', scanHardware);
-
-  // Layout
-  if (btnStartAll) btnStartAll.addEventListener('click', startAllServices);
-  if (btnReloadWebview) {
-    btnReloadWebview.addEventListener('click', () => {
-      if (daemonRunning && sovereignWebview) {
-        appendLog('daemon', '[SYSTEM] Reloading Sovereign Interface...\n');
-        sovereignWebview.reload();
-      }
-    });
-  }
-  if (btnToggleLogs) btnToggleLogs.addEventListener('click', toggleLogsDrawer);
-  if (btnToggleSidebar) {
-    btnToggleSidebar.addEventListener('click', () => {
-      const container = document.querySelector('.app-container');
-      if (container) container.classList.toggle('sidebar-collapsed');
-    });
-  }
+  if (btnStopBrain) btnStopBrain.addEventListener('click', stopDaemon);
+  if (btnReload) btnReload.addEventListener('click', () => {
+    if (sovereignWebview) {
+      appendLog('daemon', '[SYSTEM] Reloading interface...\n');
+      webviewLoaded = false;
+      sovereignWebview.reload();
+      webviewLoaded = true;
+    }
+  });
+  if (btnToggleLogs) btnToggleLogs.addEventListener('click', () => logsDrawer?.classList.toggle('collapsed'));
   if (btnCloseLogs && logsDrawer) btnCloseLogs.addEventListener('click', () => logsDrawer.classList.add('collapsed'));
-  if (btnClearLogs) btnClearLogs.addEventListener('click', clearActiveTerminal);
+  if (btnClearLogs) btnClearLogs.addEventListener('click', () => { if (daemonTerminal) daemonTerminal.textContent = ''; });
 
-  // Drawer tab switching
-  drawerTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      drawerTabs.forEach(t => t.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-      tab.classList.add('active');
-      activeTab = tab.getAttribute('data-tab');
-      const targetContent = document.getElementById(activeTab);
-      if (targetContent) targetContent.classList.add('active');
+  // Settings panel
+  if (btnSettingsGear) btnSettingsGear.addEventListener('click', toggleSettings);
+  if (btnCloseSettings) btnCloseSettings.addEventListener('click', toggleSettings);
+
+  // Settings nav
+  const settingsNavItems = document.querySelectorAll('.settings-nav-item');
+  const settingsSections = document.querySelectorAll('.settings-section');
+  settingsNavItems.forEach(item => {
+    item.addEventListener('click', () => {
+      settingsNavItems.forEach(n => n.classList.remove('active'));
+      settingsSections.forEach(s => s.classList.remove('active'));
+      item.classList.add('active');
+      const section = document.getElementById('section-' + item.dataset.section);
+      if (section) section.classList.add('active');
     });
   });
 
-  // Settings modal
-  if (btnSettings) {
-    btnSettings.addEventListener('click', async () => {
-      if (settingsView) settingsView.classList.remove('hidden');
-      await checkServiceStatus();
-    });
-  }
-  if (btnCloseSettings && settingsView) btnCloseSettings.addEventListener('click', () => settingsView.classList.add('hidden'));
-  if (btnSaveSettings) btnSaveSettings.addEventListener('click', saveSettings);
-  if (settingsView) {
-    settingsView.addEventListener('click', (e) => {
-      if (e.target === settingsView) settingsView.classList.add('hidden');
-    });
-  }
+  // Brain chat
+  if (brainChatSend) brainChatSend.addEventListener('click', sendBrainChat);
+  if (brainChatInput) brainChatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendBrainChat(); });
 
-  // Service installer
-  if (btnInstallService)   btnInstallService.addEventListener('click', installService);
+  // Settings - General
+  if (btnScanHw) btnScanHw.addEventListener('click', scanHardwareSettings);
+
+  // Settings - Models
+  if (selLlmProvider) selLlmProvider.addEventListener('change', toggleLlmFields);
+  if (btnSaveApiConfig) btnSaveApiConfig.addEventListener('click', saveApiConfig);
+  if (btnToggleKeyVis) btnToggleKeyVis.addEventListener('click', toggleKeyVisibility);
+  if (btnPullModel) btnPullModel.addEventListener('click', pullModel);
+  if (btnRefreshOllama) btnRefreshOllama.addEventListener('click', refreshOllamaModels);
+  if (btnLaunchClaude) btnLaunchClaude.addEventListener('click', () => window.api.launchClaudeWin());
+  if (txtPullModel) txtPullModel.addEventListener('keydown', (e) => { if (e.key === 'Enter') pullModel(); });
+  if (btnSetOllamaDefault) btnSetOllamaDefault.addEventListener('click', setOllamaDefaultModel);
+
+  // Settings - STT
+  if (selSttProvider) selSttProvider.addEventListener('change', toggleSttFields);
+  if (btnSaveStt) btnSaveStt.addEventListener('click', saveSttConfig);
+
+  // Settings - TTS
+  if (selTtsProvider) selTtsProvider.addEventListener('change', updateTtsStatus);
+  if (btnSaveTts) btnSaveTts.addEventListener('click', saveTtsConfig);
+
+  // Settings - Service
+  if (btnInstallService) btnInstallService.addEventListener('click', installService);
   if (btnUninstallService) btnUninstallService.addEventListener('click', uninstallService);
+  if (btnVerifyDownload) btnVerifyDownload.addEventListener('click', verifyAndDownload);
 
-  // Focus Mode
+  // Settings - Advanced
   if (btnStartFocus) btnStartFocus.addEventListener('click', startFocusMode);
-  if (btnStopFocus)  btnStopFocus.addEventListener('click', stopFocusMode);
-}
+  if (btnStopFocus) btnStopFocus.addEventListener('click', stopFocusMode);
 
-// ── Provider field visibility ─────────────────────────────────────────────────
-function updateProviderFields() {
-  if (!selModelProvider) return;
-  const provider = selModelProvider.value;
-  const cfg = PROVIDER_DEFAULTS[provider] || { needsKey: true, placeholder: '' };
-
-  if (apiKeyContainer) {
-    if (cfg.needsKey) {
-      apiKeyContainer.classList.remove('hidden');
-    } else {
-      apiKeyContainer.classList.add('hidden');
+  // Webview reconnect
+  const reconnectBtn = document.getElementById('btn-reconnect');
+  if (reconnectBtn) reconnectBtn.addEventListener('click', () => {
+    document.getElementById('reconnect-overlay')?.classList.add('hidden');
+    if (sovereignWebview) {
+      webviewLoaded = false;
+      sovereignWebview.reload();
+      webviewLoaded = true;
     }
+  });
+
+  // Webview listeners
+  if (sovereignWebview) {
+    sovereignWebview.addEventListener('did-finish-load', () => {
+      document.getElementById('reconnect-overlay')?.classList.add('hidden');
+    });
+    sovereignWebview.addEventListener('did-fail-load', () => {
+      webviewLoaded = false;
+      document.getElementById('reconnect-overlay')?.classList.remove('hidden');
+    });
   }
-  if (customModelContainer) customModelContainer.classList.remove('hidden');
-  if (customModelInput) customModelInput.placeholder = cfg.placeholder;
 }
 
-// ── API Key visibility toggle ─────────────────────────────────────────────────
+// ── Settings toggle ────────────────────────────────────────
+function toggleSettings() {
+  if (!settingsPanel) return;
+  const isOpen = settingsPanel.classList.toggle('open');
+  settingsPanel.classList.remove('hidden');
+  dashboardView?.classList.toggle('settings-open', isOpen);
+  if (isOpen) checkServiceStatus();
+}
+
+// ── LLM field visibility & provider-specific model listing ─
+function toggleLlmFields() {
+  if (!selLlmProvider) return;
+  const val = selLlmProvider.value;
+  const needsKey = !['ollama', 'local'].includes(val);
+  if (fieldApiKey) fieldApiKey.style.display = needsKey ? 'block' : 'none';
+  if (fieldLocalGguf) fieldLocalGguf.style.display = val === 'local' ? 'block' : 'none';
+  updateProviderModelList(val);
+}
+
+const PROVIDER_MODEL_HINTS = {
+  local: 'Place .gguf files in C:\\Users\\Akash\\.sovereign\\models\\ for local inference.',
+  anthropic: 'Supported models: claude-sonnet-4-6, claude-3-5-haiku-latest, claude-3-opus-latest',
+  openai: 'Supported models: gpt-4o-mini, gpt-4o, gpt-4.1, o3, o4-mini',
+  gemini: 'Supported models: gemini-2.5-flash, gemini-2.5-pro, gemini-1.5-flash',
+  openrouter: 'Browse models at https://openrouter.ai/models',
+  groq: 'Supported models: llama-3.3-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768',
+  nvidia: 'Supported models: meta/llama-3.1-70b-instruct, nvidia/llama-3.1-nemotron-70b-instruct',
+};
+const PROVIDER_DEFAULT_MODELS = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.5-flash',
+  openrouter: 'qwen/qwen-2.5-coder-1.5b-instruct:free',
+  groq: 'llama-3.3-70b-versatile',
+  nvidia: 'meta/llama-3.1-70b-instruct',
+};
+
+async function updateProviderModelList(provider) {
+  const containerId = 'provider-models-container';
+  let container = document.getElementById(containerId);
+  if (!container) {
+    container = document.createElement('div');
+    container.id = containerId;
+    container.className = 'provider-models-box';
+    const fieldContainer = document.getElementById('field-custom-model') || customModelInput?.parentElement;
+    if (fieldContainer) fieldContainer.after(container);
+    else if (customModelInput) customModelInput.after(container);
+  }
+  const msgEl = document.createElement('em');
+  container.textContent = '';
+  msgEl.textContent = 'Loading...';
+  container.appendChild(msgEl);
+  try {
+    if (provider === 'ollama') {
+      const status = await window.api.checkOllamaServer();
+      container.textContent = '';
+      if (status.running) {
+        const result = await window.api.listLocalModels();
+        const models = result.success ? result.models : [];
+        if (models.length) {
+          for (const m of models) {
+            const div = document.createElement('div');
+            div.style.cssText = 'cursor:pointer;padding:2px 0';
+            div.textContent = `• ${m}`;
+            div.addEventListener('click', () => { if (customModelInput) customModelInput.value = m; });
+            container.appendChild(div);
+          }
+        } else {
+          msgEl.textContent = 'No models installed. Use the Download field above.';
+          container.appendChild(msgEl);
+        }
+      } else {
+        msgEl.textContent = 'Ollama server not running. Start Ollama to see models.';
+        container.appendChild(msgEl);
+      }
+      return;
+    }
+    const hint = PROVIDER_MODEL_HINTS[provider];
+    const defaultModel = PROVIDER_DEFAULT_MODELS[provider];
+    container.textContent = '';
+    if (hint) {
+      msgEl.textContent = hint;
+      container.appendChild(msgEl);
+    }
+    if (defaultModel && customModelInput && !customModelInput.value) {
+      customModelInput.value = defaultModel;
+    }
+  } catch {
+    container.textContent = '';
+    msgEl.textContent = 'Could not load model list.';
+    container.appendChild(msgEl);
+  }
+}
+
+async function checkOllamaServer() {
+  if (!ollamaServerStatus) return;
+  try {
+    const status = await window.api.checkOllamaServer();
+    if (status.running) {
+      ollamaServerStatus.innerHTML = '<span style="color:#00e676;">●</span> Ollama running on localhost:11434';
+      refreshOllamaModels();
+    } else {
+      ollamaServerStatus.innerHTML = '<span style="color:#ff5252;">●</span> Ollama not detected on localhost:11434';
+    }
+  } catch {
+    ollamaServerStatus.textContent = 'Could not check Ollama server.';
+  }
+}
+
 function toggleKeyVisibility() {
-  if (!apiKeyInput || !btnToggleKeyVisibility) return;
+  if (!apiKeyInput || !btnToggleKeyVis) return;
   if (apiKeyInput.type === 'password') {
     apiKeyInput.type = 'text';
-    btnToggleKeyVisibility.textContent = '🔒';
+    btnToggleKeyVis.textContent = '🔒';
   } else {
     apiKeyInput.type = 'password';
-    btnToggleKeyVisibility.textContent = '👁️';
+    btnToggleKeyVis.textContent = '👁️';
   }
 }
 
-// ── Save API configuration ────────────────────────────────────────────────────
+// ── STT field visibility ──────────────────────────────────
+function toggleSttFields() {
+  if (!selSttProvider) return;
+  const val = selSttProvider.value;
+  const needsKey = val === 'openai' || val === 'groq' || val === 'sarvam';
+  const needsEndpoint = val === 'local' || val === 'openai_compatible';
+  if (sttApiKeyContainer) sttApiKeyContainer.classList.toggle('hidden', !needsKey);
+  if (sttEndpointContainer) sttEndpointContainer.classList.toggle('hidden', !needsEndpoint);
+  const sttModelContainer = document.getElementById('stt-model-container');
+  if (sttModelContainer) sttModelContainer.classList.toggle('hidden', !needsEndpoint);
+  if (sttStatus) sttStatus.textContent = `Status: ${selSttProvider.options[selSttProvider.selectedIndex].text}`;
+}
+
+function updateTtsStatus() {
+  if (!selTtsProvider || !ttsStatus) return;
+  const val = selTtsProvider.value;
+  const ttsEndpointContainer = document.getElementById('tts-endpoint-container');
+  const ttsApiKeyContainer = document.getElementById('tts-api-key-container');
+  const ttsVoiceModelContainer = document.getElementById('tts-voice-model-container');
+  const isCustom = val === 'openai_compatible';
+  if (ttsEndpointContainer) ttsEndpointContainer.classList.toggle('hidden', !isCustom);
+  if (ttsApiKeyContainer) ttsApiKeyContainer.classList.toggle('hidden', !isCustom);
+  if (ttsVoiceModelContainer) ttsVoiceModelContainer.classList.toggle('hidden', !isCustom);
+  ttsStatus.textContent = `Status: ${selTtsProvider.options[selTtsProvider.selectedIndex].text}`;
+}
+
+// ── Save API config ────────────────────────────────────────
 async function saveApiConfig() {
-  if (!selModelProvider || !apiKeyInput || !customModelInput || !btnSaveApiConfig) return;
-  const provider    = selModelProvider.value;
-  const apiKey      = apiKeyInput.value.trim();
+  if (!selLlmProvider || !apiKeyInput || !customModelInput || !btnSaveApiConfig) return;
+  const provider = selLlmProvider.value;
+  const apiKey = apiKeyInput.value.trim();
   const customModel = customModelInput.value.trim();
-
-  const cfg = PROVIDER_DEFAULTS[provider] || { needsKey: true };
-  if (cfg.needsKey && !apiKey) {
-    showToast('Please enter an API Key for the selected provider!', 'warn');
-    return;
-  }
-
+  const needsKey = !['ollama', 'local'].includes(provider);
+  if (needsKey && !apiKey) { showToast('Please enter an API Key!', 'warn'); return; }
   const result = await window.api.saveApiConfig({ provider, apiKey, customModel });
   if (result.success) {
-    const original = btnSaveApiConfig.textContent;
-    btnSaveApiConfig.textContent = '✓ Config Applied';
-    btnSaveApiConfig.style.background = 'linear-gradient(135deg, #00e676, #00b0ff)';
-    setTimeout(() => {
-      btnSaveApiConfig.textContent = original;
-      btnSaveApiConfig.style.background = '';
-    }, 2000);
-    showToast('Provider config saved!', 'success');
+    if (provider === 'ollama') updateOllamaDefaultDisplay(customModel);
+    if (selOllamaModel && customModel) {
+      const opt = Array.from(selOllamaModel.options).find(o => o.value === customModel);
+      if (opt) selOllamaModel.value = customModel;
+    }
+    if (ollamaCurrentDefault) ollamaCurrentDefault.textContent = customModel || 'none';
+    showToast(`Now using: ${provider}:${customModel}`, 'success');
   } else {
-    showToast(`Failed to save config: ${result.error}`, 'error');
+    showToast(`Failed: ${result.error}`, 'error');
   }
 }
 
-// ── Pull local models ─────────────────────────────────────────────────────────
-async function pullModel() {
-  if (!txtPullModel || !btnPullModel || !logsDrawer) return;
-  const modelName = txtPullModel.value.trim();
-  if (!modelName) {
-    showToast('Please enter a valid model name (e.g. phi3, mistral).', 'warn');
-    return;
-  }
+async function saveSttConfig() {
+  if (!selSttProvider || !btnSaveStt) return;
+  const provider = selSttProvider.value;
+  const payload = { provider };
+  if (provider === 'openai') payload.openai = { api_key: sttApiKey?.value?.trim() || '' };
+  if (provider === 'groq') payload.groq = { api_key: sttApiKey?.value?.trim() || '' };
+  if (provider === 'sarvam') payload.sarvam = { api_key: sttApiKey?.value?.trim() || '' };
+  if (provider === 'local') payload.local = { endpoint: sttEndpoint?.value?.trim() || 'http://localhost:8189', model: sttModel?.value?.trim() || '', server_type: 'whisper_cpp' };
+  if (provider === 'openai_compatible') payload.openai_compatible = { endpoint: sttEndpoint?.value?.trim() || '', api_key: sttApiKey?.value?.trim() || '', model: sttModel?.value?.trim() || '' };
+  btnSaveStt.disabled = true;
+  btnSaveStt.textContent = 'Saving...';
+  const result = await window.api.saveSttConfig(payload);
+  btnSaveStt.disabled = false;
+  btnSaveStt.textContent = 'Save';
+  showToast(result.success ? 'STT config saved!' : `Failed: ${result.error}`, result.success ? 'success' : 'error');
+}
 
+async function saveTtsConfig() {
+  if (!selTtsProvider || !btnSaveTts) return;
+  const provider = selTtsProvider.value;
+  const payload = { provider, enabled: chkTtsEnabled?.checked !== false, voice: selTtsVoice?.value || 'af_heart' };
+  if (provider === 'openai_compatible') {
+    payload.openai_compatible = { endpoint: ttsEndpoint?.value?.trim() || '', api_key: ttsApiKey?.value?.trim() || '', model: ttsVoiceModel?.value?.trim() || '' };
+  }
+  btnSaveTts.disabled = true;
+  btnSaveTts.textContent = 'Saving...';
+  const result = await window.api.saveTtsConfig(payload);
+  btnSaveTts.disabled = false;
+  btnSaveTts.textContent = 'Save';
+  showToast(result.success ? 'TTS config saved!' : `Failed: ${result.error}`, result.success ? 'success' : 'error');
+}
+
+// ── Pull model ─────────────────────────────────────────────
+async function pullModel() {
+  if (!txtPullModel || !btnPullModel) return;
+  const modelName = txtPullModel.value.trim();
+  if (!modelName) { showToast('Enter a model name.', 'warn'); return; }
   btnPullModel.disabled = true;
   btnPullModel.textContent = '📥 Downloading...';
-  logsDrawer.classList.remove('collapsed');
-  const logTab = document.querySelector('[data-tab="daemon-logs"]');
-  if (logTab) logTab.click();
-
+  logsDrawer?.classList.remove('collapsed');
   const result = await window.api.pullModel(modelName);
   btnPullModel.disabled = false;
-  btnPullModel.textContent = '📥 Download Model';
-
-  if (result.success) {
-    showToast(`Model "${modelName}" downloaded successfully!`, 'success');
-    txtPullModel.value = '';
-    refreshLocalModels();
-  } else {
-    showToast(`Failed to download model: ${result.error}`, 'error');
-  }
+  btnPullModel.textContent = 'Download';
+  if (result.success) { showToast(`"${modelName}" downloaded!`, 'success'); txtPullModel.value = ''; refreshOllamaModels(); }
+  else { showToast(`Failed: ${result.error}`, 'error'); }
 }
 
-// ── List locally installed Ollama models ──────────────────────────────────────
-async function refreshLocalModels() {
-  if (!localModelsList) return;
-  localModelsList.textContent = 'Loading...';
+async function refreshOllamaModels() {
+  if (!ollamaModelsList) return;
+  ollamaModelsList.textContent = 'Refreshing...';
   try {
     const result = await window.api.listLocalModels();
-    if (result.success && result.models.length > 0) {
-      localModelsList.innerHTML = result.models
-        .map(m => `<div style="display:flex;justify-content:space-between;"><span>• ${m}</span><button onclick="activateModel('${m}','ollama')" style="background:none;border:none;color:var(--accent-cyan);cursor:pointer;font-size:0.9em;">Use</button></div>`)
-        .join('');
+    const models = result.success ? result.models : [];
+    ollamaModelsList.textContent = '';
+    if (models.length) {
+      for (const m of models) {
+        const div = document.createElement('div');
+        div.textContent = `• ${m}`;
+        ollamaModelsList.appendChild(div);
+      }
     } else {
-      localModelsList.textContent = 'No models installed.';
+      ollamaModelsList.textContent = 'No Ollama models installed.';
     }
-  } catch (e) {
-    localModelsList.textContent = 'Ollama not found.';
-  }
+    if (selOllamaModel) {
+      const currentVal = selOllamaModel.value;
+      selOllamaModel.textContent = '';
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '-- Select model --';
+      selOllamaModel.appendChild(opt);
+      for (const m of models) {
+        const o = document.createElement('option');
+        o.value = m;
+        o.textContent = m;
+        selOllamaModel.appendChild(o);
+      }
+      if (currentVal && models.includes(currentVal)) selOllamaModel.value = currentVal;
+    }
+  } catch { ollamaModelsList.textContent = 'Error checking Ollama.'; }
 }
 
-// ── Hardware scan ─────────────────────────────────────────────────────────────
-async function scanHardware() {
-  const hwInfo           = document.getElementById('hw-info');
-  const hwRecommendation = document.getElementById('hw-recommendation');
-  const btnScan          = document.getElementById('btn-scan-hardware');
-  if (!hwInfo || !hwRecommendation || !btnScan) return;
+async function setOllamaDefaultModel() {
+  if (!selOllamaModel || !customModelInput || !ollamaCurrentDefault) return;
+  const model = selOllamaModel.value;
+  if (!model) { showToast('Select a model first.', 'warn'); return; }
+  customModelInput.value = model;
+  ollamaCurrentDefault.textContent = model;
+  await saveApiConfig();
+}
 
-  btnScan.disabled = true;
-  btnScan.textContent = '🔍 Scanning...';
-  hwInfo.textContent = 'Scanning...';
+function updateOllamaDefaultDisplay(model) {
+  if (ollamaCurrentDefault) ollamaCurrentDefault.textContent = model || 'none';
+}
 
+// ── Hardware scan ──────────────────────────────────────────
+async function scanHardwareSettings() {
+  if (!hwInfoSettings || !btnScanHw) return;
+  btnScanHw.disabled = true;
+  hwInfoSettings.textContent = 'Scanning...';
   try {
-    const specs = await window.api.scanHardware();
-
-    hwInfo.innerHTML = `
-      <b>${specs.cpuModel.split(' ').slice(0, 5).join(' ')}</b><br>
-      🧠 RAM: ${specs.totalRamGb}GB total, ${specs.freeRamGb}GB free<br>
-      ⚡ CPU Cores: ${specs.cpuCores}<br>
-      🖥️ GPU: ${specs.gpuName || 'None'} ${specs.gpuVramGb ? `(${specs.gpuVramGb}GB VRAM)` : ''}
-    `;
-
-    hwRecommendation.classList.remove('hidden');
-    hwRecommendation.innerHTML = `
-      💡 <b>Recommended:</b> ${specs.recommended}<br>
-      ${specs.recommendation}
-    `;
-
-    // Mirror specs into Settings > System Info panel
+    const info = await window.api.scanHardware();
+    hwInfoSettings.innerHTML = '';
+    hwInfoSettings.appendChild(document.createTextNode(`CPU: ${info.cpuModel} (${info.cpuCores} cores)`));
+    hwInfoSettings.appendChild(document.createElement('br'));
+    hwInfoSettings.appendChild(document.createTextNode(`RAM: ${info.totalRamGb}GB (${info.freeRamGb}GB free)`));
+    hwInfoSettings.appendChild(document.createElement('br'));
+    hwInfoSettings.appendChild(document.createTextNode(`GPU: ${info.gpuName || 'None'} (${info.gpuVramGb || 0}GB VRAM)`));
+    hwInfoSettings.appendChild(document.createElement('br'));
+    hwInfoSettings.appendChild(document.createTextNode(`Recommended: ${info.recommended}`));
     if (sysInfoText) {
-      sysInfoText.innerHTML = `
-        🖥️ <b>CPU:</b> ${specs.cpuModel} (${specs.cpuCores} cores)<br>
-        🧠 <b>RAM:</b> ${specs.totalRamGb}GB total / ${specs.freeRamGb}GB free<br>
-        ⚡ <b>GPU:</b> ${specs.gpuName || 'Unknown'} (${specs.gpuVramGb || 0}GB VRAM)<br>
-        🏷️ <b>OS:</b> ${specs.platform} / ${specs.arch}<br>
-        💡 <b>Recommended model:</b> ${specs.recommended}
-      `;
+      sysInfoText.innerHTML = '';
+      sysInfoText.appendChild(document.createTextNode(`CPU: ${info.cpuModel}`));
+      sysInfoText.appendChild(document.createElement('br'));
+      sysInfoText.appendChild(document.createTextNode(`RAM: ${info.totalRamGb}GB`));
+      sysInfoText.appendChild(document.createElement('br'));
+      sysInfoText.appendChild(document.createTextNode(`GPU: ${info.gpuName || 'Unknown'}`));
+      sysInfoText.appendChild(document.createElement('br'));
+      sysInfoText.appendChild(document.createTextNode(`OS: ${info.platform}`));
     }
-
-    // Auto-fill the model input
-    if (customModelInput) {
-      customModelInput.value = specs.recommended;
-      if (selModelProvider) selModelProvider.value = 'ollama-local';
-      updateProviderFields();
-    }
-  } catch (err) {
-    hwInfo.textContent = 'Scan failed: ' + err.message;
-  }
-
-  btnScan.disabled = false;
-  btnScan.textContent = '🔍 Scan Specs';
+    if (customModelInput) customModelInput.value = info.recommended;
+    if (selLlmProvider) selLlmProvider.value = 'ollama';
+  } catch { hwInfoSettings.textContent = 'Scan failed.'; }
+  btnScanHw.disabled = false;
 }
 
-// ── Status checks ─────────────────────────────────────────────────────────────
+// ── Show the webview (dashboard SPA) ───────────────────────
+function loadWebview() {
+  if (!sovereignWebview || webviewLoaded) return;
+  webviewLoaded = true;
+  if (splashView) splashView.classList.add('hidden');
+  if (dashboardView) dashboardView.classList.remove('hidden');
+  sovereignWebview.classList.remove('hidden');
+  sovereignWebview.src = 'http://localhost:3142';
+  const bcc = document.getElementById('brain-chat-container');
+  if (bcc) bcc.classList.add('hidden');
+}
+
+// ── Status checks ──────────────────────────────────────────
 async function checkSystemStatus() {
   if (statusCheckInProgress) return;
   statusCheckInProgress = true;
   try {
     const daemonStatus = await window.api.checkDaemonStatus();
-    updateDaemonUI(daemonStatus);
+    const brainStatus = await window.api.brainStatus();
+    daemonRunning = daemonStatus;
+    brainRunning = brainStatus.running;
 
-    // Lightweight health check if daemon is running
-    if (daemonStatus) {
-      const health = await window.api.healthCheck();
-      updateHealthUI(health);
+    const elapsed = Date.now() - appStartTime;
+    brainStarting = !brainRunning && !brainStatus.error && elapsed < 35000;
+
+    updateBrainUI(brainStatus.running, brainStatus.error, brainStarting);
+
+    const health = daemonStatus ? await window.api.healthCheck() : null;
+
+    // Mirror status to settings panel
+    if (spBrainDot && spBrainText) {
+      if (brainRunning) { spBrainDot.className = 'status-dot-sm running'; spBrainText.textContent = 'Online'; }
+      else if (brainStarting) { spBrainDot.className = 'status-dot-sm pending'; spBrainText.textContent = 'Starting...'; }
+      else { spBrainDot.className = 'status-dot-sm stopped'; spBrainText.textContent = 'Offline'; }
+    }
+    if (spHealthDot && spHealthText) {
+      if (health && health.status === 'running') { spHealthDot.className = 'status-dot-sm running'; spHealthText.textContent = 'Port ' + health.port + ' active'; }
+      else { spHealthDot.className = 'status-dot-sm stopped'; spHealthText.textContent = 'Not responding'; }
+    }
+    if (spServiceDot && spServiceText) {
+      try {
+        const s = await window.api.checkServiceInstalled();
+        if (s?.daemon || s === true) { spServiceDot.className = 'status-dot-sm running'; spServiceText.textContent = 'Installed'; }
+        else { spServiceDot.className = 'status-dot-sm stopped'; spServiceText.textContent = 'Not installed'; }
+      } catch { spServiceDot.className = 'status-dot-sm stopped'; spServiceText.textContent = 'Unknown'; }
+    }
+
+    if (brainRunning && !webviewLoaded) {
+      loadWebview();
+    } else if (!brainRunning) {
+      if (splashView) splashView.classList.remove('hidden');
+      if (dashboardView) dashboardView.classList.add('hidden');
+    }
+  } finally { statusCheckInProgress = false; }
+}
+
+function updateBrainUI(isRunning, error, starting) {
+  const els = [
+    { dot: hdrBrainDot, text: hdrBrainText },
+  ];
+  for (const el of els) {
+    if (!el.dot && !el.text) continue;
+    if (isRunning) {
+      if (el.dot) el.dot.className = 'status-dot-sm running';
+      if (el.text) el.text.textContent = 'Online';
+    } else if (starting) {
+      if (el.dot) el.dot.className = 'status-dot-sm pending';
+      if (el.text) el.text.textContent = 'Starting...';
+    } else if (error) {
+      if (el.dot) el.dot.className = 'status-dot-sm error';
+      if (el.text) el.text.textContent = 'Error';
     } else {
-      updateHealthUI(null);
-    }
-  } finally {
-    statusCheckInProgress = false;
-  }
-}
-
-// ── Update Daemon UI elements safely ──────────────────────────────────────────
-function updateDaemonUI(isRunning) {
-  daemonRunning = isRunning;
-  document.body.classList.toggle('sovereign-activated', isRunning);
-
-  if (isRunning) {
-    if (daemonStatusDot) daemonStatusDot.className = 'status-indicator running';
-    if (daemonStatusText) daemonStatusText.textContent = 'Online (Port 3142)';
-    if (btnStartDaemon) btnStartDaemon.disabled = true;
-    if (btnStopDaemon) btnStopDaemon.disabled  = false;
-
-    if (splashView) splashView.classList.add('hidden');
-    if (dashboardView) dashboardView.classList.remove('hidden');
-
-    if (!webviewLoaded && sovereignWebview) {
-      appendLog('daemon', '[SYSTEM] Directing interface view to http://localhost:3142\n');
-      sovereignWebview.src = 'http://localhost:3142';
-      webviewLoaded = true;
-    }
-  } else {
-    if (daemonStatusDot) daemonStatusDot.className = 'status-indicator stopped';
-    if (daemonStatusText) daemonStatusText.textContent = 'Offline';
-    if (btnStartDaemon) btnStartDaemon.disabled = false;
-    if (btnStopDaemon) btnStopDaemon.disabled  = true;
-
-    if (splashView) splashView.classList.remove('hidden');
-    if (dashboardView) dashboardView.classList.add('hidden');
-
-    if (webviewLoaded && sovereignWebview) {
-      sovereignWebview.src = 'about:blank';
-      webviewLoaded = false;
+      if (el.dot) el.dot.className = 'status-dot-sm stopped';
+      if (el.text) el.text.textContent = 'Offline';
     }
   }
+  if (btnStartBrain) btnStartBrain.disabled = isRunning || starting;
+  if (btnStopBrain) btnStopBrain.disabled = !isRunning;
 }
 
-function updateHealthUI(health) {
-  if (!healthStatusDot || !healthStatusText) return;
-  if (!health) {
-    healthStatusDot.className = 'status-indicator stopped';
-    healthStatusText.textContent = '—';
-    return;
-  }
-  if (health.status === 'running') {
-    healthStatusDot.className = 'status-indicator running';
-    healthStatusText.textContent = `Port ${health.port} active`;
-  } else {
-    healthStatusDot.className = 'status-indicator stopped';
-    healthStatusText.textContent = 'Not responding';
-  }
-}
-
-// ── Daemon Actions ────────────────────────────────────────────────────────────
+// ── Boot daemon ────────────────────────────────────────────
 async function bootDaemon() {
-  if (daemonStatusDot) daemonStatusDot.className = 'status-indicator pending';
-  if (daemonStatusText) daemonStatusText.textContent = 'Booting...';
-  if (btnStartDaemon) btnStartDaemon.disabled = true;
-  if (btnBootSystem) btnBootSystem.disabled  = true;
+  if (btnStartBrain) btnStartBrain.disabled = true;
+  if (btnBootSystem) btnBootSystem.disabled = true;
 
   if (bootLoadingContainer) bootLoadingContainer.classList.remove('hidden');
-  if (logsDrawer) logsDrawer.classList.remove('collapsed');
 
-  const options = {
-    useQwen:     chkUseQwen ? chkUseQwen.checked : true,
-    autoCorrect: chkAutoCorrect ? chkAutoCorrect.checked : true
-  };
-
-  let progress      = 0;
+  let progress = 0;
   let remainingTime = 10;
   if (bootProgressBar) bootProgressBar.style.width = '0%';
   if (bootTimer) bootTimer.textContent = '10s';
 
   const statuses = [
-    { threshold: 8, text: 'Initializing Sovereign environment...'    },
-    { threshold: 6, text: 'Booting Sovereign Brain...'               },
-    { threshold: 4, text: 'Loading local model configuration...'    },
+    { threshold: 8, text: 'Initializing Sovereign environment...' },
+    { threshold: 6, text: 'Booting Sovereign Brain...' },
+    { threshold: 4, text: 'Loading local model configuration...' },
     { threshold: 2, text: 'Starting channels & websocket server...' },
-    { threshold: 0, text: 'Connecting to system interface...'       },
+    { threshold: 0, text: 'Connecting to system interface...' },
   ];
 
   const bootInterval = setInterval(() => {
-    progress      += 10;
+    progress += 10;
     remainingTime -= 1;
     if (bootProgressBar) bootProgressBar.style.width = `${progress}%`;
     if (bootTimer) bootTimer.textContent = `${remainingTime}s`;
-
     const status = statuses.find(s => remainingTime >= s.threshold);
     if (status && bootStatusText) bootStatusText.textContent = status.text;
-
     if (remainingTime <= 0) clearInterval(bootInterval);
   }, 1000);
 
-  const result = await window.api.startDaemon(options);
+  const result = await window.api.startDaemon({
+    useQwen: chkUseQwen ? chkUseQwen.checked : true,
+    autoCorrect: chkAutoCorrect ? chkAutoCorrect.checked : true,
+  });
 
   clearInterval(bootInterval);
   if (bootProgressBar) bootProgressBar.style.width = '100%';
   if (bootTimer) bootTimer.textContent = '0s';
-  if (bootStatusText) bootStatusText.textContent = 'Sovereign is Ready!';
+  if (bootStatusText) bootStatusText.textContent = 'Ready!';
 
   setTimeout(async () => {
     if (bootLoadingContainer) bootLoadingContainer.classList.add('hidden');
     await checkSystemStatus();
-    if (btnBootSystem) btnBootSystem.disabled  = false;
-    if (btnStartDaemon) btnStartDaemon.disabled = false;
-
-    if (result && !result.success) {
-      showToast(`Daemon failed to start: ${result.error || 'Unknown error'}`, 'error');
-      if (logsDrawer) logsDrawer.classList.remove('collapsed');
-    }
+    if (btnBootSystem) btnBootSystem.disabled = false;
+    if (btnStartBrain) btnStartBrain.disabled = false;
+    if (result && !result.success) showToast(`Failed: ${result.error}`, 'error');
   }, 800);
 }
 
 async function stopDaemon() {
-  if (confirm('Are you sure you want to shut down the Sovereign daemon?')) {
-    if (daemonStatusDot) daemonStatusDot.className = 'status-indicator pending';
-    if (daemonStatusText) daemonStatusText.textContent = 'Stopping...';
-    if (btnStopDaemon) btnStopDaemon.disabled = true;
-
-    await window.api.stopDaemon();
-    await checkSystemStatus();
-  }
+  if (!confirm('Shut down the Sovereign brain?')) return;
+  if (btnStopBrain) btnStopBrain.disabled = true;
+  await window.api.stopDaemon();
+  await checkSystemStatus();
 }
 
-async function startAllServices() {
-  if (!daemonRunning) await bootDaemon();
-}
-
-// ── Service Management ────────────────────────────────────────────────────────
+// ── Service management ─────────────────────────────────────
 async function installService() {
-  if (!btnInstallService) return;
+  if (!btnInstallService || !serviceStatusText) return;
   btnInstallService.disabled = true;
-  if (serviceStatusText) serviceStatusText.textContent = 'Installing... (approve the UAC prompt)';
+  serviceStatusText.textContent = 'Installing...';
   try {
     const result = await window.api.installWindowsService();
-    if (result.success) {
-      showToast('✅ Background service installed and running 24/7!', 'success');
-    } else {
-      showToast(`Failed: ${result.error}`, 'error');
-    }
-  } catch (error) {
-    showToast(`Error: ${error.message}`, 'error');
-  } finally {
-    await checkServiceStatus();
-    btnInstallService.disabled = false;
-  }
+    showToast(result.success ? 'Service installed!' : `Failed: ${result.error}`, result.success ? 'success' : 'error');
+  } catch (e) { showToast(`Error: ${e.message}`, 'error'); }
+  finally { await checkServiceStatus(); btnInstallService.disabled = false; }
 }
 
 async function uninstallService() {
-  if (!btnUninstallService) return;
+  if (!btnUninstallService || !serviceStatusText) return;
   btnUninstallService.disabled = true;
-  if (serviceStatusText) serviceStatusText.textContent = 'Uninstalling service...';
+  serviceStatusText.textContent = 'Uninstalling...';
   try {
     const result = await window.api.uninstallWindowsService();
-    if (result.success) {
-      showToast('Background service uninstalled successfully', 'success');
-    } else {
-      showToast(`Failed to uninstall service: ${result.error}`, 'error');
-    }
-  } catch (error) {
-    showToast(`Error: ${error.message}`, 'error');
-  } finally {
-    await checkServiceStatus();
-    btnUninstallService.disabled = false;
-  }
+    showToast(result.success ? 'Service removed' : `Failed: ${result.error}`, result.success ? 'success' : 'error');
+  } catch (e) { showToast(`Error: ${e.message}`, 'error'); }
+  finally { await checkServiceStatus(); btnUninstallService.disabled = false; }
 }
 
 async function checkServiceStatus() {
   if (!serviceStatusText) return;
   try {
-    const status   = await window.api.checkServiceInstalled();
-    const daemonOk = status?.daemon ?? status === true;
-
-    if (daemonOk) {
+    const status = await window.api.checkServiceInstalled();
+    const ok = status?.daemon ?? status === true;
+    if (ok) {
       serviceStatusText.textContent = '✅ Service installed & running 24/7';
       serviceStatusText.style.color = '#00e676';
-      if (btnInstallService)   btnInstallService.style.display   = 'none';
+      if (btnInstallService) btnInstallService.style.display = 'none';
       if (btnUninstallService) btnUninstallService.style.display = 'block';
     } else {
       serviceStatusText.textContent = '❌ Service not installed';
       serviceStatusText.style.color = 'var(--text-muted)';
-      if (btnInstallService)   { btnInstallService.style.display = 'block'; btnInstallService.textContent = '⚡ Install 24/7 Service'; }
+      if (btnInstallService) { btnInstallService.style.display = 'block'; btnInstallService.textContent = '⚡ Install 24/7 Service'; }
       if (btnUninstallService) btnUninstallService.style.display = 'none';
     }
-  } catch (err) {
-    serviceStatusText.textContent = 'Status: Unknown';
-  }
+  } catch { serviceStatusText.textContent = 'Status: Unknown'; }
 }
 
-// ── Focus Mode ────────────────────────────────────────────────────────────────
+// ── Verify & Download ──────────────────────────────────────
+async function verifyAndDownload() {
+  if (!btnVerifyDownload || !verifyStatus) return;
+  btnVerifyDownload.disabled = true;
+  btnVerifyDownload.textContent = '⏳ Verifying...';
+  verifyStatus.textContent = '';
+  try {
+    const result = await window.api.verifyAndDownload();
+    const failed = result.results?.filter(r => r.status === 'failed' || r.status === 'error') || [];
+    verifyStatus.textContent = failed.length === 0 ? '✅ All services verified!' : '⚠️ Some services have issues.';
+    showToast(failed.length === 0 ? 'All verified!' : `${failed.length} service(s) failed`, failed.length === 0 ? 'success' : 'warn');
+  } catch (e) { verifyStatus.textContent = `❌ Error: ${e.message}`; showToast('Verification error', 'error'); }
+  btnVerifyDownload.disabled = false;
+  btnVerifyDownload.textContent = '🔄 Verify & Download Missing Services';
+}
+
+// ── Focus Mode ─────────────────────────────────────────────
 async function startFocusMode() {
   if (!btnStartFocus) return;
   btnStartFocus.disabled = true;
   try {
     const result = await window.api.startFocusMode();
     if (result.success) {
-      showToast(`Focus Mode enabled. Lowered priority of ${result.loweredCount} processes.`, 'success');
+      showToast(`Focus Mode enabled. ${result.loweredCount} processes lowered.`, 'success');
       btnStartFocus.style.display = 'none';
       if (btnStopFocus) btnStopFocus.style.display = 'block';
-    } else {
-      showToast(`Failed to start Focus Mode: ${result.error}`, 'error');
-    }
-  } catch (error) {
-    showToast(`Error: ${error.message}`, 'error');
-  } finally {
-    btnStartFocus.disabled = false;
-  }
+    } else showToast(`Failed: ${result.error}`, 'error');
+  } catch (e) { showToast(`Error: ${e.message}`, 'error'); }
+  finally { btnStartFocus.disabled = false; }
 }
 
 async function stopFocusMode() {
@@ -631,290 +787,90 @@ async function stopFocusMode() {
   try {
     const result = await window.api.stopFocusMode();
     if (result.success) {
-      showToast(`Focus Mode disabled. Restored priority of ${result.restoredCount} processes.`, 'success');
+      showToast(`Focus Mode disabled. ${result.restoredCount} processes restored.`, 'success');
       if (btnStartFocus) btnStartFocus.style.display = 'block';
       btnStopFocus.style.display = 'none';
-    } else {
-      showToast(`Failed to stop Focus Mode: ${result.error}`, 'error');
+    } else showToast(`Failed: ${result.error}`, 'error');
+  } catch (e) { showToast(`Error: ${e.message}`, 'error'); }
+  finally { btnStopFocus.disabled = false; }
+}
+
+// ── Native Brain Chat ──────────────────────────────────────
+async function sendBrainChat() {
+  const input = brainChatInput;
+  const sendBtn = brainChatSend;
+  const messagesEl = brainChatMsg;
+  if (!input || !sendBtn || !messagesEl) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendBtn.disabled = true;
+
+  const userMsg = document.createElement('div');
+  userMsg.style = 'align-self:flex-end; background:linear-gradient(135deg,#3a3a8a,#2a2a6a); padding:8px 12px; border-radius:10px; border-bottom-right-radius:4px; max-width:80%; font-size:13px; line-height:1.5; word-wrap:break-word;';
+  userMsg.textContent = text;
+  messagesEl.appendChild(userMsg);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const asstMsg = document.createElement('div');
+  asstMsg.style = 'align-self:flex-start; background:rgba(30,30,70,0.6); border:1px solid #2a2a5a; padding:8px 12px; border-radius:10px; border-bottom-left-radius:4px; max-width:80%; font-size:13px; line-height:1.5; word-wrap:break-word; color:#8888cc;';
+  asstMsg.id = 'brain-chat-pending';
+  asstMsg.innerHTML = '<span class="chat-thinking-dot"></span><span class="chat-thinking-dot"></span><span class="chat-thinking-dot"></span> <span style="color:#6666aa;font-size:11px">thinking</span>';
+  messagesEl.appendChild(asstMsg);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  try {
+    const result = await window.api.chatSend(text, [], false);
+    const pending = document.getElementById('brain-chat-pending');
+    if (pending) {
+      if (result.result) {
+        pending.textContent = result.result.content || result.result.text || JSON.stringify(result.result);
+        pending.style.color = '#e0e0ff';
+      } else {
+        pending.textContent = 'Error: ' + (result.error || 'Unknown') + '\n\n💡 Configure an LLM provider in Settings > Models.';
+        pending.style.color = '#ff5252';
+      }
+      pending.id = '';
     }
-  } catch (error) {
-    showToast(`Error: ${error.message}`, 'error');
-  } finally {
-    btnStopFocus.disabled = false;
+  } catch (e) {
+    const pending = document.getElementById('brain-chat-pending');
+    if (pending) { pending.textContent = 'Error: ' + e.message; pending.style.color = '#ff5252'; pending.id = ''; }
   }
+  sendBtn.disabled = false;
+  input.focus();
 }
 
-// ── Settings Save ─────────────────────────────────────────────────────────────
-async function saveSettings() {
-  if (!bunPathInput || !chkAutoDaemon || !settingsView) return;
-  const bunPath        = bunPathInput.value.trim();
-  const autoStartDaemon = chkAutoDaemon.checked;
+const ANSI_CLEAN_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+const MAX_LOG_LINES = 5000;
+let logLineCount = 0;
 
-  if (!bunPath) {
-    showToast('Bun path cannot be empty!', 'warn');
-    return;
-  }
-
-  if (appConfig) {
-    appConfig.bunPath        = bunPath;
-    appConfig.autoStartDaemon = autoStartDaemon;
-  }
-
-  await window.api.saveConfig({ bunPath, autoStartDaemon });
-  appendLog('daemon', `[SYSTEM] Saved settings. Bun Path: ${bunPath}\n`);
-  showToast('Settings saved!', 'success');
-  settingsView.classList.add('hidden');
-}
-
-// ── Log management ────────────────────────────────────────────────────────────
-function toggleLogsDrawer() {
-  if (logsDrawer) logsDrawer.classList.toggle('collapsed');
-}
-
-function clearActiveTerminal() {
-  if (activeTab === 'daemon-logs' && daemonTerminal) daemonTerminal.textContent = '';
-}
-
+// ── Log management ─────────────────────────────────────────
 function appendLog(source, text) {
-  const terminal = daemonTerminal;
-  if (!terminal) return;
-
-  // Strip ANSI escape codes
-  const clean = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-  terminal.textContent += clean;
-
-  // Cap at 5000 lines
-  const lines = terminal.textContent.split('\n');
-  if (lines.length > 5000) {
-    terminal.textContent = lines.slice(lines.length - 5000).join('\n');
+  if (!daemonTerminal) return;
+  const clean = text.replace(ANSI_CLEAN_RE, '');
+  daemonTerminal.appendChild(document.createTextNode(clean));
+  logLineCount += clean.split('\n').length - 1;
+  if (logLineCount > MAX_LOG_LINES) {
+    const allText = daemonTerminal.textContent;
+    const lines = allText.split('\n');
+    if (lines.length > MAX_LOG_LINES) {
+      daemonTerminal.textContent = lines.slice(lines.length - MAX_LOG_LINES).join('\n');
+      logLineCount = MAX_LOG_LINES;
+    }
   }
-
-  // Auto-scroll
-  const container = terminal.parentElement;
+  const container = daemonTerminal.parentElement;
   if (container) container.scrollTop = container.scrollHeight;
 }
 
-// ── Voice Recognition ─────────────────────────────────────────────────────────
-(function initVoice() {
-  window.addEventListener('DOMContentLoaded', () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const voiceBtn  = document.getElementById('voice-btn');
-    const chatInput = document.getElementById('chat-input') || document.querySelector('textarea, input[type=text]');
-
-    if (!SpeechRecognition || !voiceBtn) return;
-
-    const recognition    = new SpeechRecognition();
-    recognition.continuous     = false;
-    recognition.interimResults = true;
-    recognition.lang           = localStorage.getItem('sovereign_voice_lang') || 'en-US';
-
-    let listening = false;
-
-    voiceBtn.addEventListener('click', () => {
-      listening ? recognition.stop() : recognition.start();
-    });
-
-    recognition.onstart = () => {
-      listening = true;
-      voiceBtn.classList.add('voice-listening');
-      showToast('Listening...', 'info');
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results).map(r => r[0].transcript).join('');
-      if (chatInput) chatInput.value = transcript;
-    };
-
-    recognition.onend = () => {
-      listening = false;
-      voiceBtn.classList.remove('voice-listening');
-    };
-
-    recognition.onerror = (event) => {
-      listening = false;
-      voiceBtn.classList.remove('voice-listening');
-      showToast(`Voice error: ${event.error}`, 'error');
-    };
-  });
-})();
-
-// ── Text-to-Speech ────────────────────────────────────────────────────────────
-function speakText(text) {
-  if (!window.speechSynthesis) return;
-  if (localStorage.getItem('sovereign_tts') !== 'true') return;
-  window.speechSynthesis.cancel();
-  const utter     = new SpeechSynthesisUtterance(text);
-  const voiceName = localStorage.getItem('sovereign_tts_voice');
-  if (voiceName) {
-    const voice = window.speechSynthesis.getVoices().find(v => v.name === voiceName);
-    if (voice) utter.voice = voice;
-  }
-  utter.rate  = 1.0;
-  utter.pitch = 1.0;
-  window.speechSynthesis.speak(utter);
-}
-window.speakText = speakText;
-
-// ── Model Pool & Hardware Recommender ─────────────────────────────────────────
-async function initModelPool() {
-  const hardwareInfo = document.getElementById('hardware-info');
-  const modelList    = document.getElementById('model-list');
-  const searchInput  = document.getElementById('model-search');
-  const refreshBtn   = document.getElementById('refresh-pool-btn');
-
-  if (!hardwareInfo || !modelList) return;
-
-  let specs = null;
-  try {
-    specs = await window.api.scanHardware();
-    if (hardwareInfo) {
-      hardwareInfo.textContent = `CPU: ${specs.cpuModel} (${specs.cpuCores} cores) | RAM: ${specs.totalRamGb}GB | GPU: ${specs.gpuName || 'None'} ${specs.gpuVramGb ? `(${specs.gpuVramGb}GB VRAM)` : ''}`;
-    }
-  } catch (e) {
-    if (hardwareInfo) hardwareInfo.textContent = 'Hardware scan failed';
-  }
-
-  let allModels = [];
-
-  async function loadModels() {
-    if (!modelList) return;
-    modelList.innerHTML = '<div class="model-loading">Loading...</div>';
-    try {
-      const result = await window.api.getCompatibleModels(
-        specs?.totalRamGb || 8,
-        specs?.gpuVramGb  || 0
-      );
-      allModels = result.models || [];
-      renderModels(allModels);
-    } catch (e) {
-      modelList.innerHTML = '<div class="model-error">Failed to load models. Is the daemon running?</div>';
-    }
-  }
-
-  function renderModels(models) {
-    if (!modelList) return;
-    const query       = (searchInput?.value || '').toLowerCase();
-    const activeFilter = document.querySelector('.pill.active')?.dataset.filter || 'all';
-
-    const filtered = models.filter(m => {
-      const tags = (m.tags || '').toLowerCase();
-      const name = (m.name || '').toLowerCase();
-      const matchSearch = !query || name.includes(query) || tags.includes(query);
-      const matchFilter = activeFilter === 'all' ||
-        (activeFilter === 'local' && m.is_local) ||
-        (activeFilter === 'cloud' && !m.is_local) ||
-        (activeFilter === 'free'  && tags.includes('free'));
-      return matchSearch && matchFilter;
-    });
-
-    if (filtered.length === 0) {
-      modelList.innerHTML = '<div class="model-empty">No models match your filter.</div>';
-      return;
-    }
-
-    modelList.innerHTML = filtered.map(m => `
-      <div class="model-card ${m.is_local ? 'model-local' : ''}" data-name="${m.name}">
-        <div class="model-card-header">
-          <span class="model-name">${m.display_name}</span>
-          <span class="model-provider badge-${m.provider}">${m.provider}</span>
-        </div>
-        <div class="model-card-meta">
-          <span class="meta-pill">⚡ Speed ${m.speed_rank}</span>
-          ${m.parameter_count ? `<span class="meta-pill">${m.parameter_count}B params</span>` : ''}
-          ${m.context_length  ? `<span class="meta-pill">${(m.context_length/1000).toFixed(0)}K ctx</span>` : ''}
-          <span class="meta-pill">${m.min_ram}GB RAM</span>
-        </div>
-        <div class="model-card-actions">
-          ${m.is_local
-            ? '<span class="status-badge status-local">✓ Installed</span>'
-            : m.download_command
-              ? `<button class="btn-download" onclick="downloadModel('${m.name}', '${m.download_command}')">⬇ Download</button>`
-              : `<a class="btn-download" href="${m.download_url}" target="_blank">↗ View</a>`
-          }
-          <button class="btn-use" onclick="activateModel('${m.name}', '${m.provider}')">Use</button>
-        </div>
-      </div>
-    `).join('');
-  }
-
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', async () => {
-      refreshBtn.textContent = '↻ Refreshing...';
-      refreshBtn.disabled    = true;
-      try {
-        await window.api.refreshModelPool();
-        showToast('Model pool refreshed!', 'success');
-        await loadModels();
-      } catch (e) {
-        showToast('Refresh failed: ' + e.message, 'error');
-      } finally {
-        refreshBtn.textContent = '↻ Refresh';
-        refreshBtn.disabled    = false;
-      }
-    });
-  }
-
-  if (searchInput) searchInput.addEventListener('input', () => renderModels(allModels));
-
-  document.querySelectorAll('.filter-pills .pill').forEach(pill => {
-    pill.addEventListener('click', () => {
-      document.querySelectorAll('.filter-pills .pill').forEach(p => p.classList.remove('active'));
-      pill.classList.add('active');
-      renderModels(allModels);
-    });
-  });
-
-  await loadModels();
-}
-
-// ── Global model helpers (called from inline HTML) ────────────────────────────
-window.downloadModel = async function(name, downloadCommand) {
-  const modelToPull = downloadCommand && downloadCommand.startsWith('ollama run ')
-    ? downloadCommand.replace('ollama run ', '')
-    : name;
-
-  showToast(`Starting download: ${modelToPull}`, 'info');
-  try {
-    const result = await window.api.pullModel(modelToPull);
-    if (result.success) {
-      showToast(`Download complete: ${modelToPull}`, 'success');
-      refreshLocalModels();
-    } else {
-      showToast(`Download failed: ${result.error}`, 'error');
-    }
-  } catch (e) {
-    showToast(`Download error: ${e.message}`, 'error');
-  }
-};
-
-window.activateModel = async function(name, provider) {
-  showToast(`Activating ${name}...`, 'info');
-  try {
-    const providerKey = provider === 'ollama' ? 'ollama-local' : `${provider}-cloud`;
-    await window.api.saveApiConfig({ provider: providerKey, customModel: name, apiKey: '' });
-    if (selModelProvider) selModelProvider.value = providerKey;
-    if (customModelInput) customModelInput.value = name;
-    updateProviderFields();
-    showToast(`Now using: ${name}`, 'success');
-  } catch (e) {
-    showToast('Failed to activate model', 'error');
-  }
-};
-
-// ── Global Error Handling ─────────────────────────────────────────────────────
+// ── Global handlers ────────────────────────────────────────
 window.addEventListener('error', (event) => {
   console.error('Uncaught UI error:', event.error);
-  showToast(`Uncaught Error: ${event.message}`, 'error');
+  showToast(`Error: ${event.message}`, 'error');
 });
-
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason);
-  showToast(`Unhandled Rejection: ${event.reason?.message || event.reason}`, 'error');
+  console.error('Unhandled rejection:', event.reason);
+  showToast(`Rejection: ${event.reason?.message || event.reason}`, 'error');
 });
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  init();
-  // Init model pool after daemon has time to start
-  setTimeout(initModelPool, 2000);
-});
+// ── Bootstrap ──────────────────────────────────────────────
+init();

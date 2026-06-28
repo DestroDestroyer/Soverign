@@ -1,7 +1,7 @@
 import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'bun';
 import type { AppController, WindowInfo, UIElement } from './interface.ts';
 
 export class WindowsAppController implements AppController {
@@ -9,11 +9,8 @@ export class WindowsAppController implements AppController {
     const tempFile = join(tmpdir(), `sovereign-automation-${Math.random().toString(36).slice(2)}.ps1`);
     try {
       writeFileSync(tempFile, script, 'utf8');
-      const escapedArgs = args.map(arg => `"${arg.toString().replace(/"/g, '`"')}"`).join(' ');
-      const stdout = execSync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${tempFile}" ${escapedArgs}`, {
-        encoding: 'utf8',
-        maxBuffer: 15 * 1024 * 1024,
-      });
+      const result = spawnSync(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tempFile, ...args], {});
+      const stdout = result.stdout?.toString() ?? '';
       return stdout;
     } catch (e) {
       console.error('[WindowsAppController] PowerShell execution failed:', e);

@@ -77,7 +77,7 @@ export class OllamaProvider implements LLMProvider {
   private baseUrl: string;
   private defaultModel: string;
 
-  constructor(baseUrl = 'http://localhost:11434', defaultModel = 'llama3') {
+  constructor(baseUrl = 'http://localhost:11434', defaultModel = 'sam860/falcon-h1:1.5b-deep-Q4_0') {
     this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.defaultModel = defaultModel;
   }
@@ -93,6 +93,7 @@ export class OllamaProvider implements LLMProvider {
       model,
       messages: this.convertMessages(compactedMessages),
       stream: false,
+      keep_alive: "30s",
     };
 
     // Map our cross-provider options to Ollama's `body.options` bag.
@@ -100,9 +101,8 @@ export class OllamaProvider implements LLMProvider {
     // composer reply or any structured response. Callers that don't
     // pass `max_tokens` still get the Ollama default; pass it
     // explicitly to lift the cap.
-    const ollamaOptions: Record<string, unknown> = {
-      num_ctx: 8192 // Allocate 8192 tokens context window explicitly for performance
-    };
+    const ollamaOptions: Record<string, unknown> = {};
+    ollamaOptions.num_ctx = 8192;
     if (temperature !== undefined) ollamaOptions.temperature = temperature;
     if (max_tokens !== undefined) ollamaOptions.num_predict = max_tokens;
     if (Object.keys(ollamaOptions).length > 0) body.options = ollamaOptions;
@@ -115,6 +115,7 @@ export class OllamaProvider implements LLMProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Connection': 'close',
       },
       body: JSON.stringify(body),
     });
@@ -139,13 +140,13 @@ export class OllamaProvider implements LLMProvider {
       model,
       messages: this.convertMessages(compactedMessages),
       stream: true,
+      keep_alive: "30s",
     };
 
     // See chat(): map our cross-provider options to Ollama's bag.
     // `num_predict` lifts Ollama's 128-token default cap.
-    const ollamaOptions: Record<string, unknown> = {
-      num_ctx: 8192 // Allocate 8192 tokens context window explicitly for performance
-    };
+    const ollamaOptions: Record<string, unknown> = {};
+    ollamaOptions.num_ctx = 8192;
     if (temperature !== undefined) ollamaOptions.temperature = temperature;
     if (max_tokens !== undefined) ollamaOptions.num_predict = max_tokens;
     if (Object.keys(ollamaOptions).length > 0) body.options = ollamaOptions;
@@ -158,6 +159,7 @@ export class OllamaProvider implements LLMProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Connection': 'close',
       },
       body: JSON.stringify(body),
     });
@@ -183,14 +185,15 @@ export class OllamaProvider implements LLMProvider {
     let inputTokens = 0;
     let outputTokens = 0;
 
-    try {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let readerDone = false;
 
+    try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) { readerDone = true; break; }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -243,6 +246,12 @@ export class OllamaProvider implements LLMProvider {
       }
     } catch (err) {
       yield { type: 'error', error: `Stream error: ${err}`, code: 'network' };
+    } finally {
+      // Ensure the reader is always cancelled so the underlying HTTP
+      // connection is released, even if the caller breaks early.
+      if (!readerDone) {
+        try { reader.cancel(); } catch {}
+      }
     }
   }
 

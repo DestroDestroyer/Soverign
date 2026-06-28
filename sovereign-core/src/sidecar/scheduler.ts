@@ -26,7 +26,7 @@ export class EventScheduler {
   private drainTimer: Timer | null = null;
   private readonly drainIntervalMs: number;
 
-  constructor(drainIntervalMs = 50) {
+  constructor(drainIntervalMs = 200) {
     this.drainIntervalMs = drainIntervalMs;
   }
 

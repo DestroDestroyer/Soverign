@@ -25,6 +25,9 @@ Sovereign is an autonomous AI system that acts as your **personal executive assi
 | Feature | Description |
 |---------|-------------|
 | 🧠 **Local LLM** | Powered by Ollama (Qwen 2.5, Llama 3, Mistral and more) |
+| 🎙️ **Local Voice Engine** | High-fidelity offline speech-to-text (Xenova) and text-to-speech (Kokoro) |
+| 🕸️ **Graph Memory** | SQLite-based semantic relationship graph memory to retain and link context |
+| 🎨 **Spatial Web UI v2** | Modern layout with workspaces, rooms dispatcher, command palettes, and widgets |
 | 👁️ **Desktop Awareness** | Watches files, clipboard, running processes, and notifications |
 | 🤖 **Multi-Agent Roles** | CEO, Dev Lead, Personal Assistant, Research Specialist and more |
 | 🔒 **100% Private** | All processing happens on your machine — no cloud calls |
@@ -250,7 +253,7 @@ CI runs automatically on every push via **GitHub Actions** (`.github/workflows/t
 
 ## 📈 Roadmap
 
-See [`task_features.md`](./task_features.md) for the full feature roadmap.
+Sovereign is moving fast. Here is our current progress and planned trajectory:
 
 | # | Feature | Status |
 |---|---------|--------|
@@ -259,15 +262,14 @@ See [`task_features.md`](./task_features.md) for the full feature roadmap.
 | 3 | Desktop observers | ✅ Done |
 | 4 | Workflow engine | ✅ Done |
 | 5 | Hardware spec scanning | ✅ Done |
-| 6 | cURL / Fetch connectivity test | 🔄 In Progress |
-| 7 | Screenshot capture + analysis | 📋 Planned |
-| 8 | Telegram / Email channels | 📋 Planned |
-| 9 | Goal tracking system | 📋 Planned |
-| 10 | Site builder | 📋 Planned |
-| 11 | Google Workspace sync | 📋 Planned |
-| 12 | Voice wake-word detection | 📋 Planned |
-
----
+| 6 | Cognitive Brain & Graph Memory | ✅ Done |
+| 7 | Local Voice Integration (Xenova/Kokoro) | ✅ Done |
+| 8 | Spatial Web UI v2 & Rooms layout | ✅ Done |
+| 9 | cURL / Fetch connectivity test | 🔄 In Progress |
+| 10 | Screenshot capture + analysis | 📋 Planned |
+| 11 | Telegram / Email channels | 📋 Planned |
+| 12 | Google Workspace sync | 📋 Planned |
+| 13 | Voice wake-word detection | 📋 Planned |
 
 ## 🤝 Contributing
 
