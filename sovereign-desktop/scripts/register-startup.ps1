@@ -2,7 +2,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
-$taskName = 'SoverignDaemon'
+$taskName = 'SovereignDaemon'
 $workspaceRoot = Resolve-Path "$PSScriptRoot\..\.."
 $coreDir = Join-Path $workspaceRoot 'sovereign-core'
 $dataDir = "$env:USERPROFILE\.sovereign"
@@ -21,9 +21,9 @@ if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Fo
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($existing) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
 
-$action = New-ScheduledTaskAction -Execute $bunExe -Argument "run src/daemon/index.ts --port 3142" -WorkingDirectory $coreDir
+$action = New-ScheduledTaskAction -Execute $bunExe -Argument "run src/brain/index.ts --port 3142" -WorkingDirectory $coreDir
 $trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Days 1)
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force

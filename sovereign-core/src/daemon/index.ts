@@ -231,8 +231,15 @@ function start(): void {
   console.log("[Daemon] Ready — listening for tool execution requests on stdin");
 }
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+function shutdown(signal: string): void {
+  console.log(`[Daemon] Received ${signal} — shutting down...`);
+  running = false;
+  process.stdin.pause();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 if (import.meta.main) {
   const args = parseArgs();

@@ -204,6 +204,19 @@ export class WebSocketServer {
         const url = new URL(req.url);
         const pathname = url.pathname;
 
+        const origin = req.headers.get('origin') || req.headers.get('Origin');
+        if (origin) {
+          const isLocal = origin.startsWith('http://localhost:') || 
+                          origin.startsWith('http://127.0.0.1:') || 
+                          origin.startsWith('https://localhost:') || 
+                          origin.startsWith('https://127.0.0.1:') || 
+                          origin === 'file://' || 
+                          origin === 'null';
+          if (!isLocal) {
+            return new Response('Forbidden', { status: 403 });
+          }
+        }
+
         // 0a. Ultra-fast health check (before anything else)
         if (pathname === '/health') {
           return Response.json({
@@ -254,6 +267,10 @@ export class WebSocketServer {
               });
             }
             // No valid auth — API & WebSocket get JSON 401; browsers get the auth error page
+            if (pathname === '/ws') {
+              const success = server.upgrade(req, { data: { authFailed: true } });
+              if (success) return undefined;
+            }
             if (pathname.startsWith('/api/') || pathname === '/ws') {
               return Response.json({ error: 'Unauthorized' }, { status: 401 });
             }
@@ -440,6 +457,17 @@ export class WebSocketServer {
         maxPayloadLength: 16 * 1024 * 1024,
 
         open(ws) {
+          if ((ws.data as any)?.authFailed) {
+            const errorMsg: WSMessage = {
+              type: 'error',
+              payload: { message: 'Unauthorized' },
+              timestamp: Date.now()
+            };
+            ws.send(JSON.stringify(errorMsg));
+            ws.close();
+            return;
+          }
+
           // HMR proxy WebSocket — bridge to dev server
           const proxyTarget = (ws.data as any)?.proxy_target as string | undefined;
           if (proxyTarget) {
@@ -471,6 +499,20 @@ export class WebSocketServer {
         },
 
         async message(ws, message) {
+          // Check limits
+          if (typeof message === 'string' && message.length > 16 * 1024 * 1024) return;
+          if (message instanceof Buffer && message.byteLength > 16 * 1024 * 1024) return;
+
+          if ((ws.data as any)?.authFailed) {
+            try {
+              ws.send(JSON.stringify({ error: 'Unauthorized' }));
+            } catch {}
+            try {
+              ws.close();
+            } catch {}
+            return;
+          }
+
           // HMR proxy — forward to upstream dev server
           const proxyUpstream = (ws.data as any)?._proxyUpstream as WebSocket | undefined;
           if (proxyUpstream) {

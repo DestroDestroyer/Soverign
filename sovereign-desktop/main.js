@@ -6,6 +6,7 @@ const { spawn, exec, execSync } = require('child_process');
 const net = require('net');
 const { BrainBridge } = require('./brain-bridge');
 
+const BRAIN_PORT = 3142;
 const configPath = path.join(__dirname, 'config.json');
 
 // Native Windows data directory (same as what the Bun daemon uses)
@@ -13,14 +14,29 @@ const sovereignDataDir = path.join(os.homedir(), '.sovereign');
 const sovereignLogFile = path.join(sovereignDataDir, 'sovereign.log');
 const sovereignConfigYaml = path.join(sovereignDataDir, 'config.yaml');
 
+// ─── Crash Reporting ────────────────────────────────────────────────────────
+process.on('uncaughtException', (error) => {
+  console.error('[CRASH] Uncaught Exception:', error);
+  try {
+    fs.appendFileSync(sovereignLogFile, `[CRASH] Uncaught Exception: ${error?.stack || error}\n`, 'utf8');
+  } catch {}
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRASH] Unhandled Rejection at:', promise, 'reason:', reason);
+  try {
+    fs.appendFileSync(sovereignLogFile, `[CRASH] Unhandled Rejection: ${reason?.stack || reason}\n`, 'utf8');
+  } catch {}
+});
+
 // Core project root (parent of sovereign-desktop)
 const projectRoot = path.join(__dirname, '..');
 const coreDir = path.join(projectRoot, 'sovereign-core');
 const brainScript   = path.join(coreDir, 'src', 'brain',   'index.ts');
-const daemonScript  = brainScript; // brain is now the unified process (handles HTTP/WS on port 3142)
+const daemonScript  = brainScript; // brain is now the unified process (handles HTTP/WS on port BRAIN_PORT)
 
 // Windows Task Scheduler task name
-const DAEMON_TASK = 'SoverignDaemon';
+const DAEMON_TASK = 'SovereignBrain';
 
 // Focus mode exclude list - exclude common browsers and editors
 const FOCUS_EXCLUDE = 'chrome.exe|firefox.exe|msedge.exe|brave.exe|safari.exe|opera.exe|Code.exe|code.exe|vim.exe|neovim.exe|cursor.exe|SublimeText.exe|NOTEPAD++.exe';
@@ -293,22 +309,112 @@ class SovereignDesktopApp {
     this.setupIPC();
     this.setupCleanupHandlers();
 
+    // Resolve Bun path from known locations if not in config
+    await this.autoResolveBunPath();
+
+    // First-run auto-setup: install missing core deps silently
+    this.autoSetupDeps().catch(err => {
+      console.warn('[Main] Auto-setup warning:', err.message);
+    });
+
     // Auto-start the brain (core AI services) at app launch.
-    // The brain handles LLM, vault, agents, authority — everything
-    // the desktop console needs. The daemon is a separate optional
-    // process for sidecar connectivity / Windows service.
     this.startBrain().catch(err => {
       console.error('[Main] Brain startup failed:', err.message);
     });
   }
 
-  async startBrain() {
+  async autoResolveBunPath() {
+    if (config.bunPath && config.bunPath !== 'bun' && fs.existsSync(config.bunPath)) return;
+    const knownPaths = [
+      path.join(os.homedir(), '.bun', 'bin', 'bun.exe'),
+      path.join(os.homedir(), '.bun', 'bin', 'bun'),
+      'C:\\Program Files\\Bun\\bun.exe',
+    ];
+    for (const p of knownPaths) {
+      if (fs.existsSync(p)) {
+        config.bunPath = p;
+        this.saveConfig();
+        return;
+      }
+    }
+    // Check PATH with proper error handling
+    try {
+      const which = spawn('where', ['bun'], { windowsHide: true });
+      const onPath = await new Promise((resolve, reject) => {
+        let out = '';
+        which.stdout.on('data', (d) => { out += d.toString(); });
+        which.on('error', (err) => {
+          console.warn('[autoResolveBunPath] where bun error:', err.message);
+          resolve('');
+        });
+        which.on('close', (code) => {
+          if (code !== 0) resolve('');
+          else resolve(out.trim());
+        });
+      });
+      if (onPath) {
+        config.bunPath = onPath.split('\n')[0].trim();
+        this.saveConfig();
+      }
+    } catch (err) {
+      console.warn('[autoResolveBunPath] Failed to check PATH for bun:', err.message);
+    }
+  }
+
+  async autoSetupDeps() {
+    const win = this.threadSafe.getMainWindow();
+    const send = (msg) => {
+      if (win && !win.isDestroyed()) win.webContents.send('log-data', { source: 'brain', text: msg });
+    };
+
+    // Check core deps
+    const coreDeps = await this.checkDeps(true);
+    if (!coreDeps) {
+      const bunOk = await this.execCommand((config.bunPath || 'bun') + ' --version');
+      if (!bunOk) {
+        send('[SETUP] Bun not found. Click Verify & Download in Settings.\n');
+        return;
+      }
+      send('[SETUP] Installing core dependencies...\n');
+      try {
+        await this.installDeps(true);
+        send('[SETUP] Core dependencies installed.\n');
+      } catch (e) {
+        send(`[SETUP] Core dep install failed: ${e.message}\n`);
+        return;
+      }
+    }
+
+    // Auto-detect hardware and recommend low-spec model
+    const totalRamGb = Math.round(os.totalmem() / (1024 ** 3));
+    const cpuCores = os.cpus().length;
+    const NO_GPU_MODEL = 'qwen2.5:0.5b';
+    let recommendedModel = NO_GPU_MODEL;
+    if (totalRamGb >= 16 && cpuCores >= 4) recommendedModel = 'qwen2.5-coder:3b';
+    else if (totalRamGb >= 8) recommendedModel = 'qwen2.5:1.5b';
+    else recommendedModel = NO_GPU_MODEL;
+
+    if (!config.lowSpecMode && totalRamGb < 8) {
+      config.lowSpecMode = true;
+      this.saveConfig();
+      send(`[SETUP] Low-RAM mode enabled (${totalRamGb}GB). Default model: ${recommendedModel}\n`);
+    }
+  }
+
+  startBrain() {
+    if (this._brainDebounceTimer) return Promise.resolve(false);
+    return this._brainStart();
+  }
+
+  async _brainStart() {
+    this._brainDebounceTimer = setTimeout(() => { this._brainDebounceTimer = null; }, 5000);
     const dataDir = path.join(os.homedir(), '.sovereign');
 
     // Skip if brain is already running on port 3142 (e.g. via Windows service)
     const alreadyRunning = await this.checkDaemonPort();
     if (alreadyRunning) {
-      console.log('[Main] Brain already running on port 3142 — using existing process');
+      this._brainDebounceTimer = null;
+      console.log(`[Main] Brain already running on port ${BRAIN_PORT} — using existing process`);
       this.brain.ready = true;
       this.brain.started = true;
       this.emitBrainReady();
@@ -407,7 +513,9 @@ class SovereignDesktopApp {
         preload: path.join(__dirname, 'preload.js'),
         nodeIntegration: false,
         contextIsolation: true,
-        webviewTag: true
+        sandbox: true,
+        webviewTag: true,
+        allowRunningInsecureContent: false
       },
       frame: true,
       show: false,
@@ -422,7 +530,17 @@ class SovereignDesktopApp {
     win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
       webPreferences.nodeIntegration = false;
       webPreferences.contextIsolation = true;
+      webPreferences.sandbox = true;
       webPreferences.preload = path.join(__dirname, 'preload.js');
+      webPreferences.allowRunningInsecureContent = false;
+    });
+
+    // Renderer Crash Watchdog
+    win.webContents.on('render-process-gone', (event, details) => {
+      console.error('[CRASH] Renderer process gone:', details);
+      try {
+        fs.appendFileSync(sovereignLogFile, `[CRASH] Renderer process gone: ${JSON.stringify(details)}\n`, 'utf8');
+      } catch {}
     });
 
     win.once('ready-to-show', () => {
@@ -481,7 +599,7 @@ class SovereignDesktopApp {
       socket.setTimeout(800);
       socket.once('error', onError);
       socket.once('timeout', onError);
-      socket.connect(3142, '127.0.0.1', () => {
+      socket.connect(BRAIN_PORT, '127.0.0.1', () => {
         socket.end();
         resolve(true);
       });
@@ -493,13 +611,20 @@ class SovereignDesktopApp {
     if (win && !win.isDestroyed()) {
       win.webContents.send('brain-status', { running: true });
     }
-    this.sendLog('brain', '[SYSTEM] Brain is already running (port 3142)\n');
+    this.sendLog('brain', `[SYSTEM] Brain is already running (port ${BRAIN_PORT})\n`);
   }
 
   sendLog(source, data) {
     const win = this.threadSafe.getMainWindow();
     if (win && !win.isDestroyed()) {
-      win.webContents.send('log-data', { source, text: data.toString() });
+      let text = data.toString();
+      text = text.replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{10,}/g, '$1[REDACTED]');
+      text = text.replace(/(api_key["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+      text = text.replace(/(apiKey["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+      text = text.replace(/(password["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{4,}(["'])/gi, '$1[REDACTED]$2');
+      text = text.replace(/(token["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+      text = text.replace(/(secret["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+      win.webContents.send('log-data', { source, text });
     }
   }
 
@@ -512,6 +637,7 @@ class SovereignDesktopApp {
 
   startLogTail() {
     this.stopLogTail();
+    this.logTailIntentionallyStopped = false;
 
     // Ensure log file exists
     if (!fs.existsSync(sovereignDataDir)) {
@@ -541,10 +667,21 @@ class SovereignDesktopApp {
       this.sendLog('daemon', `[SYSTEM] Log stream closed (code ${code})\n`);
       this.threadSafe.state.logTailProcess = null;
       this.memoryProtector.unregisterProcess(logTailProcess);
+      
+      // Auto-reconnect if not intentionally stopped
+      if (!this.logTailIntentionallyStopped) {
+        this.sendLog('daemon', `[SYSTEM] Log stream ended unexpectedly. Reconnecting in 2 seconds...\n`);
+        setTimeout(() => {
+          if (!this.logTailIntentionallyStopped) {
+            this.startLogTail();
+          }
+        }, 2000);
+      }
     });
   }
 
   stopLogTail() {
+    this.logTailIntentionallyStopped = true;
     const proc = this.threadSafe.state.logTailProcess;
     if (proc) {
       try {
@@ -577,6 +714,12 @@ class SovereignDesktopApp {
         fs.mkdirSync(sovereignDataDir, { recursive: true });
       }
       fs.writeFileSync(sovereignConfigYaml, content, 'utf8');
+
+      // Verify that the write was successful by reading it back
+      const readBack = fs.readFileSync(sovereignConfigYaml, 'utf8');
+      if (readBack !== content) {
+        throw new Error('Config YAML write verification failed: content mismatch.');
+      }
       return true;
     } catch (e) {
       console.error('Failed to write Sovereign config:', e);
@@ -616,28 +759,27 @@ class SovereignDesktopApp {
 
   runSchtasks(args) {
     return new Promise((resolve) => {
-      exec(`schtasks ${args}`, { timeout: 10000 }, (err, stdout, stderr) => {
-        if (err && err.killed) {
-          resolve({ ok: false, stdout: '', stderr: 'Timed out', success: false });
-          return;
-        }
-        resolve({ 
-          ok: !err, 
-          stdout: stdout || '', 
-          stderr: stderr || '',
-          success: err === null 
-        });
+      const proc = spawn('schtasks', args, { windowsHide: true, timeout: 10000 });
+      let stdout = '';
+      let stderr = '';
+      const timer = setTimeout(() => { proc.kill(); resolve({ ok: false, stdout: '', stderr: 'Timed out', success: false }); }, 10000);
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ ok: code === 0, stdout, stderr, success: code === 0 });
       });
+      proc.on('error', () => { clearTimeout(timer); resolve({ ok: false, stdout: '', stderr: 'Failed to start', success: false }); });
     });
   }
 
   async isTaskRegistered(taskName) {
-    const { ok } = await this.runSchtasks(`/query /tn "${taskName}"`);
+    const { ok } = await this.runSchtasks(['/query', '/tn', taskName]);
     return ok;
   }
 
   async getTaskStatus(taskName) {
-    const { ok, stdout } = await this.runSchtasks(`/query /tn "${taskName}" /fo list /v`);
+    const { ok, stdout } = await this.runSchtasks(['/query', '/tn', taskName, '/fo', 'list', '/v']);
     if (!ok) return 'NotInstalled';
     const match = stdout.match(/Status:\s*(.+)/i);
     return match ? match[1].trim() : 'Unknown';
@@ -703,6 +845,31 @@ class SovereignDesktopApp {
     return { success: true };
   }
 
+  startPafWatchdog() {
+    const pafScript = path.join(projectRoot, '.agents', 'problem-detect-and-fix.ts');
+    if (!fs.existsSync(pafScript)) {
+      this.sendLog('daemon', '[PAF] problem-detect-and-fix.ts not found, skipping\n');
+      return;
+    }
+    // Check if already running via tasklist
+    try {
+      const result = execSync(`tasklist /fi "IMAGENAME eq bun.exe" /v /fo csv 2>nul`, { timeout: 3000, encoding: 'utf-8' });
+      if (result.includes('problem-detect-and-fix') || result.includes('PAF-Watchdog')) {
+        this.sendLog('daemon', '[PAF] Watchdog already running\n');
+        return;
+      }
+    } catch {}
+    const proc = spawn('bun', ['run', pafScript, '--watchdog', '--poll=10000'], {
+      cwd: projectRoot, windowsHide: true, detached: true, shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.unref();
+    proc.stdout?.on('data', (d) => this.sendLog('daemon', `[PAF] ${d}`));
+    proc.stderr?.on('data', (d) => this.sendLog('daemon', `[PAF:ERR] ${d}`));
+    proc.on('error', (e) => this.sendLog('daemon', `[PAF] Error: ${e.message}\n`));
+    this.sendLog('daemon', '[PAF] Problem Detect & Fix watchdog started\n');
+  }
+
   setupIPC() {
     ipcMain.handle('get-config', () => {
       return config;
@@ -763,17 +930,64 @@ class SovereignDesktopApp {
       try { return await this.checkDaemonPort(); } catch (err) { return { running: false, error: err.message }; }
     });
 
-    ipcMain.handle('start-daemon', async () => {
+    ipcMain.handle('get-system-status', async () => {
+      const daemonRunning = await this.checkDaemonPort();
+      let brainRunning = false;
+      let brainStarting = false;
+      let brainError = '';
+
+      try {
+        if (this.brain.isReady()) {
+          brainRunning = true;
+        } else if (daemonRunning) {
+          this.brain.ready = true;
+          this.brain.started = true;
+          brainRunning = true;
+        }
+      } catch (err) {
+        console.warn('[get-system-status] brain check failed:', err);
+      }
+
+      if (!brainRunning) {
+        brainStarting = this.brain._starting || false;
+        brainError = this.brain._startError || '';
+      }
+
+      const health = daemonRunning ? {
+        status: 'running',
+        port: BRAIN_PORT,
+        ts: Date.now(),
+      } : null;
+
+      let serviceInstalled = false;
+      try {
+        serviceInstalled = await this.isTaskRegistered(DAEMON_TASK);
+      } catch {}
+
+      return {
+        daemonRunning,
+        brainRunning,
+        brainStarting,
+        brainError,
+        health,
+        serviceInstalled
+      };
+    });
+
+    ipcMain.handle('get-bun-path', () => config.bunPath || 'bun');
+
+    ipcMain.handle('start-daemon', async (_event, _options) => {
       return this.threadSafe.acquireLock(async () => {
         if (this.threadSafe.isShuttingDown()) return { success: false, error: 'App shutting down' };
 
-        // Check if already running on port 3142
+        // Check if already running on port BRAIN_PORT
         const isRunning = await this.checkDaemonPort();
         if (isRunning) {
           this.brain.ready = true;
           this.brain.started = true;
           this.emitBrainReady();
           this.startLogTail();
+          this.startPafWatchdog();
           return { success: true, alreadyRunning: true };
         }
 
@@ -814,7 +1028,7 @@ class SovereignDesktopApp {
         });
         proc.on('close', () => { this.daemonDirectProcess = null; });
 
-        // Wait up to 35s for port 3142
+        // Wait up to 35s for port BRAIN_PORT
         for (let i = 0; i < 35; i++) {
           await new Promise((r) => setTimeout(r, 1000));
           if (await this.checkDaemonPort()) {
@@ -822,11 +1036,13 @@ class SovereignDesktopApp {
             this.brain.started = true;
             this.emitBrainReady();
             this.startLogTail();
-            this.sendLog('daemon', '[SYSTEM] Brain is running on port 3142!\n');
+            this.sendLog('daemon', `[SYSTEM] Brain is running on port ${BRAIN_PORT}!\n`);
+            // Auto-start PAF watchdog (Problem Detect & Fix)
+            this.startPafWatchdog();
             return { success: true };
           }
         }
-        this.sendLog('daemon', '[WARNING] Brain did not respond on port 3142 within 35s.\n');
+        this.sendLog('daemon', `[WARNING] Brain did not respond on port ${BRAIN_PORT} within 35s.\n`);
         this.startLogTail();
         return { success: false, error: 'Brain did not start within 35s. Check logs.' };
       });
@@ -854,10 +1070,27 @@ class SovereignDesktopApp {
         try {
           const registered = await this.isTaskRegistered(DAEMON_TASK);
           if (registered) {
-            await this.runSchtasks(`/end /tn "${DAEMON_TASK}"`);
+            await this.runSchtasks(['/end', '/tn', DAEMON_TASK]);
           }
         } catch (err) {
           console.warn('[stop-daemon] Failed to unregister task:', err);
+        }
+
+        // Wait up to 5 seconds for the port to be freed
+        let portFreed = false;
+        for (let i = 0; i < 10; i++) {
+          const isAlive = await this.checkDaemonPort();
+          if (!isAlive) {
+            portFreed = true;
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        if (portFreed) {
+          this.sendLog('daemon', '[SYSTEM] Sovereign Daemon stopped and port 3142 freed.\n');
+        } else {
+          this.sendLog('daemon', '[WARNING] Sovereign Daemon stopped, but port 3142 is still bound.\n');
         }
 
         return { success: true };
@@ -868,14 +1101,27 @@ class SovereignDesktopApp {
       this.sendLog('daemon', `[SYSTEM] Pulling Ollama model: "${modelName}"...\n`);
 
       return new Promise((resolve) => {
-        const sanitizedModel = String(modelName).replace(/[^a-zA-Z0-9_.:-]/g, '');
+        const modelNameStr = String(modelName).trim();
+        if (modelNameStr.includes(' ')) {
+          this.sendLog('daemon', `[ERROR] Model name contains spaces: "${modelNameStr}"\n`);
+          resolve({ success: false, error: 'Model name cannot contain spaces.' });
+          return;
+        }
+        // Strict validation: must be "model", "owner/model", "model:tag", or "owner/model:tag"
+        const modelRegex = /^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)?(?::[a-zA-Z0-9_.-]+)?$/;
+        if (!modelRegex.test(modelNameStr)) {
+          this.sendLog('daemon', `[ERROR] Invalid model name format: "${modelNameStr}"\n`);
+          resolve({ success: false, error: 'Invalid model name format.' });
+          return;
+        }
+        const sanitizedModel = modelNameStr;
         const pullProcess = spawn('ollama', ['pull', sanitizedModel], { shell: false, windowsHide: true });
         this.memoryProtector.registerProcess(pullProcess);
         const pullTimeout = setTimeout(() => {
           this.memoryProtector.unregisterProcess(pullProcess);
           pullProcess.kill();
-          resolve({ success: false, error: 'Model pull timed out after 5 minutes.' });
-        }, 5 * 60 * 1000);
+          resolve({ success: false, error: 'Model pull timed out after 60 minutes.' });
+        }, 3600000);
 
         pullProcess.stdout.on('data', (data) => this.sendLog('daemon', data));
         pullProcess.stderr.on('data', (data) => this.sendLog('daemon', data));
@@ -900,26 +1146,40 @@ class SovereignDesktopApp {
       });
     });
 
+    let modelCache = { models: [], ts: 0 };
+    const MODEL_CACHE_TTL = 30000;
     ipcMain.handle('list-local-models', () => {
+      const now = Date.now();
+      if (modelCache.models.length > 0 && now - modelCache.ts < MODEL_CACHE_TTL) {
+        return Promise.resolve({ success: true, models: modelCache.models, cached: true });
+      }
       return new Promise((resolve) => {
-          // Verify ollama binary exists
           const checkProc = spawn('ollama', ['--version'], { windowsHide: true });
           let missing = false;
+          let modelTimeout = null;
           checkProc.on('error', () => { missing = true; });
           checkProc.on('close', (code) => {
               if (missing || code !== 0) {
                   resolve({ success: false, error: 'Ollama not found', models: [] });
                   return;
               }
-              exec('ollama list', { timeout: 10000 }, (err, stdout) => {
-                  if (err) return resolve({ success: false, error: err.message, models: [] });
-                  const lines = stdout.trim().split('\n').slice(1);
-                  const models = lines
-                    .filter(l => l.trim())
-                    .map(l => {
-                        const parts = l.trim().split(/\s+/);
-                        return parts[0];
-                    });
+              let stdout = '';
+              const listProc = spawn('ollama', ['list'], { windowsHide: true });
+              modelTimeout = setTimeout(() => {
+                listProc.kill();
+                resolve({ success: false, error: 'Ollama list timed out', models: [] });
+              }, 10000);
+              listProc.stdout.on('data', (data) => { stdout += data.toString(); });
+              listProc.on('close', () => {
+                if (modelTimeout) clearTimeout(modelTimeout);
+                const lines = stdout.trim().split('\n').slice(1);
+                const models = lines
+                  .filter(l => l.trim())
+                  .map(l => {
+                      const parts = l.trim().split(/\s+/);
+                      return parts[0];
+                  });
+                  modelCache = { models, ts: Date.now() };
                   resolve({ success: true, models });
               });
           });
@@ -927,72 +1187,101 @@ class SovereignDesktopApp {
     });
 
     ipcMain.handle('check-ollama-server', async () => {
+      let host = '127.0.0.1';
+      let port = 11434;
+
+      try {
+        const configText = this.readSovereignConfig();
+        if (configText) {
+          const ollamaMatch = configText.match(/ollama:\s*\n((\s+.*\n)+)/);
+          if (ollamaMatch) {
+            const block = ollamaMatch[1];
+            const urlMatch = block.match(/(?:endpoint|url):\s*["']?https?:\/\/([^:/]+):(\d+)/i);
+            if (urlMatch) {
+              host = urlMatch[1];
+              port = parseInt(urlMatch[2], 10);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[check-ollama-server] Error parsing ollama config, using default 127.0.0.1:11434:', e.message);
+      }
+
       return new Promise((resolve) => {
         const socket = new net.Socket();
         const onError = () => { socket.destroy(); resolve({ running: false }); };
         socket.setTimeout(500);
         socket.once('error', onError);
         socket.once('timeout', onError);
-        socket.connect(11434, '127.0.0.1', () => {
+        socket.connect(port, host, () => {
           socket.end();
           resolve({ running: true });
         });
       });
     });
 
-    ipcMain.handle('scan-hardware', () => {
-      return new Promise((resolve) => {
-        const totalRamGb = Math.round(os.totalmem() / (1024 ** 3));
-        const freeRamGb = Math.round(os.freemem() / (1024 ** 3));
-        const cpuModel = os.cpus()[0]?.model || 'Unknown CPU';
-        const cpuCores = os.cpus().length;
-        const platform = os.platform();
-        const arch = os.arch();
+    ipcMain.handle('scan-hardware', async () => {
+      const totalRamGb = Math.round(os.totalmem() / (1024 ** 3));
+      const freeRamGb = Math.round(os.freemem() / (1024 ** 3));
+      const cpuModel = os.cpus()[0]?.model || 'Unknown CPU';
+      const cpuCores = os.cpus().length;
+      const platform = os.platform();
+      const arch = os.arch();
 
-        exec(
-          'powershell -NoProfile -NonInteractive -Command "Get-WmiObject Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json"',
-          { timeout: 8000 },
-          (err, stdout) => {
-            let gpuName = 'Unknown GPU';
-            let gpuVramGb = 0;
-            let gpuVramMb = 0;
-
-            if (!err && stdout && stdout.trim()) {
-              try {
-                const gpu = JSON.parse(stdout.trim());
-                gpuName = gpu.Name || 'Unknown GPU';
-                const adapterRam = Number(gpu.AdapterRAM) || 0;
-                gpuVramMb = Math.round(adapterRam / (1024 ** 2));
-                gpuVramGb = Math.round(adapterRam / (1024 ** 3));
-              } catch (parseErr) {
-                // GPU parse failed
-              }
-            }
+      let gpuName = 'Unknown GPU';
+      let gpuVramGb = 0;
+      let gpuVramMb = 0;
+      try {
+        const gpuResult = await new Promise((resolve) => {
+          let stdout = '';
+          const proc = spawn('powershell', [
+            '-NoProfile', '-NonInteractive',
+            '-Command', 'Get-WmiObject Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json'
+          ], { windowsHide: true, timeout: 8000 });
+          const timer = setTimeout(() => { proc.kill(); resolve(''); }, 8000);
+          proc.stdout.on('data', (d) => { stdout += d.toString(); });
+          proc.on('close', () => { clearTimeout(timer); resolve(stdout); });
+          proc.on('error', () => { clearTimeout(timer); resolve(''); });
+        });
+        if (gpuResult && gpuResult.trim()) {
+          try {
+            const gpu = JSON.parse(gpuResult.trim());
+            gpuName = gpu.Name || 'Unknown GPU';
+            const adapterRam = Number(gpu.AdapterRAM) || 0;
+            gpuVramMb = Math.round(adapterRam / (1024 ** 2));
+            gpuVramGb = Math.round(adapterRam / (1024 ** 3));
+          } catch (parseErr) {
+            console.warn('[scan-hardware] GPU JSON parse failed:', parseErr, 'Result was:', gpuResult);
+          }
+        }
+      } catch (scanErr) {
+        console.warn('[scan-hardware] GPU scan failed:', scanErr);
+      }
 
             const effectiveMem = Math.max(totalRamGb, gpuVramGb);
             let recommended = 'qwen2.5:0.5b';
-            let recommendation = '';
+            let recommendation = '0.5B model (works on any system, even <4GB RAM)';
             if (effectiveMem >= 64) {
               recommended = 'qwen2.5-coder:32b';
-              recommendation = '32B model recommended (64GB+ RAM/VRAM)';
+              recommendation = '32B model (64GB+ RAM/VRAM)';
             } else if (effectiveMem >= 32) {
               recommended = 'qwen2.5-coder:14b';
-              recommendation = '14B model recommended (32GB+ RAM/VRAM)';
+              recommendation = '14B model (32GB+ RAM/VRAM)';
             } else if (effectiveMem >= 16) {
               recommended = 'qwen2.5-coder:7b';
-              recommendation = '7B model recommended (16GB+ RAM/VRAM)';
+              recommendation = '7B model (16GB+ RAM/VRAM)';
             } else if (effectiveMem >= 8) {
               recommended = 'qwen2.5-coder:3b';
-              recommendation = '3B model recommended (8–16GB RAM/VRAM)';
+              recommendation = '3B model (8–16GB RAM/VRAM)';
             } else if (effectiveMem >= 4) {
               recommended = 'qwen2.5:1.5b';
-              recommendation = '1.5B model recommended (4–8GB RAM/VRAM)';
+              recommendation = '1.5B model (4–8GB RAM/VRAM)';
             } else {
               recommended = 'qwen2.5:0.5b';
-              recommendation = '0.5B model recommended (<4GB RAM/VRAM)';
+              recommendation = '0.5B model (<4GB RAM — guaranteed to run)';
             }
 
-            resolve({
+            return {
               totalRamGb,
               freeRamGb,
               cpuModel,
@@ -1004,30 +1293,34 @@ class SovereignDesktopApp {
               gpuVramMb,
               recommended,
               recommendation,
-            });
-          }
-        );
-      });
+            };
     });
 
-    ipcMain.handle('get-gpu-vram', () => {
-      return new Promise((resolve) => {
-        exec(
-          'powershell -NoProfile -NonInteractive -Command "Get-WmiObject Win32_VideoController | Select-Object -First 1 AdapterRAM | ConvertTo-Json"',
-          { timeout: 8000 },
-          (err, stdout) => {
-            if (!err && stdout && stdout.trim()) {
-              try {
-                const gpu = JSON.parse(stdout.trim());
-                const adapterRam = Number(gpu.AdapterRAM) || 0;
-                const gpuVramGb = Math.round(adapterRam / (1024 ** 3));
-                return resolve({ success: true, gpuVramGb });
-          } catch (e) { console.warn('[get-gpu-vram] JSON parse failed:', e); }
-            }
-            resolve({ success: false, gpuVramGb: 0 });
+    ipcMain.handle('get-gpu-vram', async () => {
+      try {
+        const gpuResult = await new Promise((resolve) => {
+          let stdout = '';
+          const proc = spawn('powershell', [
+            '-NoProfile', '-NonInteractive',
+            '-Command', 'Get-WmiObject Win32_VideoController | Select-Object -First 1 AdapterRAM | ConvertTo-Json'
+          ], { windowsHide: true, timeout: 8000 });
+          const timer = setTimeout(() => { proc.kill(); resolve(''); }, 8000);
+          proc.stdout.on('data', (d) => { stdout += d.toString(); });
+          proc.on('close', () => { clearTimeout(timer); resolve(stdout); });
+          proc.on('error', () => { clearTimeout(timer); resolve(''); });
+        });
+        if (gpuResult && gpuResult.trim()) {
+          try {
+            const gpu = JSON.parse(gpuResult.trim());
+            const adapterRam = Number(gpu.AdapterRAM) || 0;
+            const gpuVramGb = Math.round(adapterRam / (1024 ** 3));
+            return { success: true, gpuVramGb };
+          } catch (e) {
+            console.warn('[get-gpu-vram] GPU JSON parse failed:', e, 'Result was:', gpuResult);
           }
-        );
-      });
+        }
+      } catch (e) { console.warn('[get-gpu-vram] GPU scan failed:', e); }
+      return { success: false, gpuVramGb: 0 };
     });
 
     ipcMain.handle('launch-claude-win', () => {
@@ -1038,7 +1331,7 @@ class SovereignDesktopApp {
     });
 
     ipcMain.handle('save-api-config', async (event, data) => {
-      const { provider, apiKey, customModel } = data;
+      const { provider, apiKey, customModel, baseUrl } = data;
       this.sendLog('daemon', `[SYSTEM] Saving LLM config for provider: "${provider}"...\n`);
 
       const needsKey = !['ollama', 'local'].includes(provider);
@@ -1048,7 +1341,7 @@ class SovereignDesktopApp {
       if (provider === 'ollama') {
         const model = customModel || 'qwen2.5:1.5b';
         defaultModel = `ollama:${model}`;
-        providerEntry = { kind: 'ollama', base_url: 'http://127.0.0.1:11434' };
+        providerEntry = { kind: 'ollama', base_url: baseUrl || 'http://127.0.0.1:11434' };
       } else if (provider === 'local') {
         defaultModel = `local:${customModel || 'qwen2.5:1.5b'}`;
         providerEntry = { kind: 'local' };
@@ -1072,14 +1365,14 @@ class SovereignDesktopApp {
         providerEntry = { kind: 'nvidia', api_key: apiKey || '' };
       }
 
-      // Write provider to the brain's DB (the authoritative source).
-      // Writing to config.yaml is useless — mergeLLMSettingsIntoConfig
-      // replaces config.llm entirely from DB settings.
       if (this.brain && this.brain.isReady()) {
         try {
-          const providers = { [provider]: providerEntry };
-          await this.brain.request('config.setSetting', { key: 'llm.providers', value: JSON.stringify(providers) });
-          await this.brain.request('config.setSetting', { key: 'llm.default', value: defaultModel });
+          await this.brain.request('llm.saveSettings', {
+            providers: {
+              [provider]: providerEntry
+            },
+            default: defaultModel
+          });
           await this.brain.request('config.reload', {});
           this.notifyWebviewRefresh();
           this.sendLog('daemon', `[SYSTEM] Config updated! Using "${defaultModel}"\n`);
@@ -1111,7 +1404,12 @@ class SovereignDesktopApp {
           const providersJson = await this.brain.request('config.getSetting', 'llm.providers');
           const dbDefault = await this.brain.request('config.getSetting', 'llm.default');
           if (providersJson && dbDefault) {
-            const providers = JSON.parse(providersJson);
+            let providers = {};
+            try {
+              providers = typeof providersJson === 'string' ? JSON.parse(providersJson) : providersJson;
+            } catch {
+              // fallback if invalid
+            }
             const modelRef = dbDefault;
             const colonIdx = modelRef.indexOf(':');
             const providerName = colonIdx >= 0 ? modelRef.slice(0, colonIdx) : modelRef;
@@ -1121,6 +1419,7 @@ class SovereignDesktopApp {
               provider: providerName || 'ollama',
               apiKey: entry?.api_key || '',
               customModel: modelId || 'qwen2.5:1.5b',
+              baseUrl: entry?.base_url || '',
             };
           }
         } catch (err) { console.warn('[get-api-config] Brain request failed:', err); }
@@ -1128,10 +1427,10 @@ class SovereignDesktopApp {
 
       // Fallback: read from YAML.
       const content = this.readSovereignConfig();
-      if (!content) return { provider: 'ollama', apiKey: '', customModel: 'qwen2.5:1.5b' };
+      if (!content) return { provider: 'ollama', apiKey: '', customModel: 'qwen2.5:1.5b', baseUrl: '' };
 
       const defaultMatch = content.match(/default:\s*"([^"]+)"/);
-      if (!defaultMatch) return { provider: 'ollama', apiKey: '', customModel: 'qwen2.5:1.5b' };
+      if (!defaultMatch) return { provider: 'ollama', apiKey: '', customModel: 'qwen2.5:1.5b', baseUrl: '' };
 
       const modelRef = defaultMatch[1];
       const colonIdx = modelRef.indexOf(':');
@@ -1141,6 +1440,7 @@ class SovereignDesktopApp {
       let provider = 'ollama';
       let apiKey = '';
       let customModel = modelId || 'qwen2.5:1.5b';
+      let baseUrl = '';
 
       const providers = ['anthropic', 'gemini', 'openai', 'openrouter', 'groq', 'nvidia', 'local'];
       if (providers.includes(providerName)) provider = providerName;
@@ -1148,15 +1448,56 @@ class SovereignDesktopApp {
       if (provider !== 'ollama' && provider !== 'local') {
         const keyMatch = content.match(/api_key:\s*"([^"]+)"/);
         if (keyMatch) apiKey = keyMatch[1];
+      } else if (provider === 'ollama') {
+        const urlMatch = content.match(/base_url:\s*"([^"]+)"/);
+        if (urlMatch) baseUrl = urlMatch[1];
       }
 
-      return { provider, apiKey, customModel };
+      return { provider, apiKey, customModel, baseUrl };
+    });
+
+    ipcMain.handle('start-paf-watchdog', () => {
+      this.startPafWatchdog();
+      return { success: true };
+    });
+
+    ipcMain.handle('check-paf-status', async () => {
+      try {
+        const resp = await fetch('http://127.0.0.1:3199/health', { signal: AbortSignal.timeout ? AbortSignal.timeout(2000) : undefined });
+        if (resp.ok) { const data = await resp.json(); return { running: true, ...data }; }
+      } catch {}
+      return { running: false };
+    });
+
+    ipcMain.handle('trigger-paf-scan', async () => {
+      try {
+        await fetch('http://127.0.0.1:3199/trigger', { method: 'POST', signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined });
+        return { triggered: true };
+      } catch { return { triggered: false, error: 'Watchdog not reachable' }; }
+    });
+
+    ipcMain.handle('get-system-specs', () => {
+      const totalRamGb = Math.round(os.totalmem() / (1024 ** 3));
+      const freeRamGb = Math.round(os.freemem() / (1024 ** 3));
+      const cpuCores = os.cpus().length;
+      const cpuModel = os.cpus()[0]?.model || 'Unknown CPU';
+      const isLowSpec = totalRamGb < 8 || cpuCores < 4;
+      let recommendedModel = 'qwen2.5:0.5b';
+      let recommendation = '0.5B model (works on any system)';
+      if (totalRamGb >= 16 && cpuCores >= 4) {
+        recommendedModel = 'qwen2.5-coder:3b';
+        recommendation = '3B model (16GB+ RAM)';
+      } else if (totalRamGb >= 8) {
+        recommendedModel = 'qwen2.5:1.5b';
+        recommendation = '1.5B model (8GB+ RAM)';
+      }
+      return { totalRamGb, freeRamGb, cpuModel, cpuCores, isLowSpec, recommendedModel, recommendation };
     });
 
     ipcMain.handle('get-compatible-models', async (event, ramGb, vramGb) => {
       try {
         const response = await safeFetch(
-          `http://127.0.0.1:3142/api/models/compatible?ram=${ramGb || 8}&vram=${vramGb || 0}`,
+          `http://127.0.0.1:${BRAIN_PORT}/api/models/compatible?ram=${ramGb || 8}&vram=${vramGb || 0}`,
           { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined }
         );
         if (!response.ok) return { success: false, models: [] };
@@ -1169,7 +1510,7 @@ class SovereignDesktopApp {
 
     ipcMain.handle('refresh-model-pool', async () => {
       try {
-        const response = await safeFetch('http://127.0.0.1:3142/api/models/refresh', {
+        const response = await safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/models/refresh`, {
           method: 'POST',
           signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
         });
@@ -1201,56 +1542,60 @@ class SovereignDesktopApp {
       };
     });
 
-    ipcMain.handle('start-focus-mode', () => {
+    async function runFocusScript(psScript, logPrefix) {
+      let stdout = '';
+      const proc = spawn('powershell', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-Command', psScript
+      ], { windowsHide: true, timeout: 10000 });
+      const timer = setTimeout(() => { proc.kill(); }, 10000);
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
       return new Promise((resolve) => {
-        this.sendLog('daemon', '[SYSTEM] Focus Mode ON — lowering priority of background processes...\n');
-        const ps = [
-          `$exclude = '${FOCUS_EXCLUDE}'`,
-          `$procs = Get-Process | Where-Object {`,
-          `  $_.PriorityClass -eq 'Normal' -and $_.ProcessName -notmatch $exclude`,
-          `}`,
-          `$count = 0`,
-          `foreach ($p in $procs) {`,
-          `  try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal; $count++ } catch {}`,
-          `}`,
-          `Write-Output $count`
-        ].join('; ');
-
-        exec(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${ps}"`, { timeout: 10000 }, (err, stdout) => {
-          const loweredCount = parseInt((stdout || '0').trim(), 10) || 0;
-          if (err) {
-            this.sendLog('daemon', `[FOCUS] Warning: ${err.message}\n`);
-          }
-          this.sendLog('daemon', `[FOCUS] Lowered priority of ${loweredCount} background processes.\n`);
-          resolve({ success: true, loweredCount });
+        proc.on('close', () => {
+          clearTimeout(timer);
+          const count = parseInt(stdout.trim(), 10) || 0;
+          resolve(count);
         });
+        proc.on('error', () => { clearTimeout(timer); resolve(0); });
       });
+    }
+
+    ipcMain.handle('start-focus-mode', async () => {
+      this.sendLog('daemon', '[SYSTEM] Focus Mode ON — lowering priority of background processes...\n');
+      const ps = [
+        `$exclude = '${FOCUS_EXCLUDE}'`,
+        `$procs = Get-Process | Where-Object {`,
+        `  $_.PriorityClass -eq 'Normal' -and $_.ProcessName -notmatch $exclude`,
+        `}`,
+        `$count = 0`,
+        `foreach ($p in $procs) {`,
+        `  try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal; $count++ } catch {}`,
+        `}`,
+        `Write-Output $count`
+      ].join('; ');
+
+      const loweredCount = await runFocusScript(ps, 'start-focus');
+      this.sendLog('daemon', `[FOCUS] Lowered priority of ${loweredCount} background processes.\n`);
+      return { success: true, loweredCount };
     });
 
-    ipcMain.handle('stop-focus-mode', () => {
-      return new Promise((resolve) => {
-        this.sendLog('daemon', '[SYSTEM] Focus Mode OFF — restoring background process priorities...\n');
-        const ps = [
-          `$exclude = '${FOCUS_EXCLUDE}'`,
-          `$procs = Get-Process | Where-Object {`,
-          `  $_.PriorityClass -eq 'BelowNormal' -and $_.ProcessName -notmatch $exclude`,
-          `}`,
-          `$count = 0`,
-          `foreach ($p in $procs) {`,
-          `  try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal; $count++ } catch {}`,
-          `}`,
-          `Write-Output $count`
-        ].join('; ');
+    ipcMain.handle('stop-focus-mode', async () => {
+      this.sendLog('daemon', '[SYSTEM] Focus Mode OFF — restoring background process priorities...\n');
+      const ps = [
+        `$exclude = '${FOCUS_EXCLUDE}'`,
+        `$procs = Get-Process | Where-Object {`,
+        `  $_.PriorityClass -eq 'BelowNormal' -and $_.ProcessName -notmatch $exclude`,
+        `}`,
+        `$count = 0`,
+        `foreach ($p in $procs) {`,
+        `  try { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::Normal; $count++ } catch {}`,
+        `}`,
+        `Write-Output $count`
+      ].join('; ');
 
-        exec(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${ps}"`, { timeout: 10000 }, (err, stdout) => {
-          const restoredCount = parseInt((stdout || '0').trim(), 10) || 0;
-          if (err) {
-            this.sendLog('daemon', `[FOCUS] Warning: ${err.message}\n`);
-          }
-          this.sendLog('daemon', `[FOCUS] Restored priority of ${restoredCount} background processes.\n`);
-          resolve({ success: true, restoredCount });
-        });
-      });
+      const restoredCount = await runFocusScript(ps, 'stop-focus');
+      this.sendLog('daemon', `[FOCUS] Restored priority of ${restoredCount} background processes.\n`);
+      return { success: true, restoredCount };
     });
 
     // ── Brain IPC Handlers ──────────────────────────────────────────────
@@ -1297,7 +1642,8 @@ class SovereignDesktopApp {
       }
       try {
         const method = stream ? 'llm.stream' : 'llm.chat';
-        const result = await this.brain.request(method, { message, history });
+        // Use a 120s timeout so the UI doesn't freeze indefinitely if the brain hangs
+        const result = await this.brain.request(method, { message, history }, 120000);
         return { result };
       } catch (err) {
         return { error: err.message };
@@ -1313,9 +1659,9 @@ class SovereignDesktopApp {
 
     ipcMain.handle('get-voice-config', async () => {
       const [stt, tts] = await Promise.all([
-        safeFetch('http://127.0.0.1:3142/api/config/stt', { signal: AbortSignal.timeout(1500) })
+        safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/config/stt`, { signal: AbortSignal.timeout(1500) })
           .then(r => r.ok ? r.json() : null).catch(() => null),
-        safeFetch('http://127.0.0.1:3142/api/config/tts', { signal: AbortSignal.timeout(1500) })
+        safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/config/tts`, { signal: AbortSignal.timeout(1500) })
           .then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       return {
@@ -1326,14 +1672,14 @@ class SovereignDesktopApp {
 
     ipcMain.handle('get-stt-config', async () => {
       try {
-        const res = await safeFetch('http://127.0.0.1:3142/api/config/stt', { signal: AbortSignal.timeout(1500) });
+        const res = await safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/config/stt`, { signal: AbortSignal.timeout(1500) });
         return res.ok ? await res.json() : STT_DEFAULTS;
       } catch { return STT_DEFAULTS; }
     });
 
     ipcMain.handle('save-stt-config', async (event, data) => {
       try {
-        const res = await safeFetch('http://127.0.0.1:3142/api/config/stt', {
+        const res = await safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/config/stt`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
@@ -1349,14 +1695,14 @@ class SovereignDesktopApp {
 
     ipcMain.handle('get-tts-config', async () => {
       try {
-        const res = await safeFetch('http://127.0.0.1:3142/api/config/tts', { signal: AbortSignal.timeout(1500) });
+        const res = await safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/config/tts`, { signal: AbortSignal.timeout(1500) });
         return res.ok ? await res.json() : TTS_DEFAULTS;
       } catch { return TTS_DEFAULTS; }
     });
 
     ipcMain.handle('save-tts-config', async (event, data) => {
       try {
-        const res = await safeFetch('http://127.0.0.1:3142/api/config/tts', {
+        const res = await safeFetch(`http://127.0.0.1:${BRAIN_PORT}/api/config/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
@@ -1368,6 +1714,11 @@ class SovereignDesktopApp {
       } catch (err) {
         return { success: false, error: err.message };
       }
+    });
+
+    ipcMain.handle('download-bun', async () => {
+      const installed = await this.downloadBun();
+      return { success: installed };
     });
 
     ipcMain.handle('verify-and-download', async () => {
@@ -1383,7 +1734,8 @@ class SovereignDesktopApp {
 
       // 1. Check Bun
       log('[VERIFY] Checking Bun runtime...\n');
-      const bunVer = await this.execCommand('bun --version');
+      const bunPath = config.bunPath || 'bun';
+      const bunVer = await this.execCommand(bunPath + ' --version');
       if (bunVer) {
         log(`[VERIFY] ✓ Bun found: ${bunVer.trim()}\n`);
         results.push({ service: 'Bun', status: 'ok', detail: bunVer.trim() });
@@ -1486,24 +1838,44 @@ class SovereignDesktopApp {
   // ── Verify service helpers ───────────────────────────────────────────
   execCommand(cmd) {
     return new Promise((resolve) => {
-      exec(cmd, { timeout: 5000 }, (err, stdout) => {
-        if (err) return resolve('');
-        resolve((stdout || '').trim());
-      });
+      let stdout = '';
+      const proc = spawn(cmd, [], { windowsHide: true, timeout: 5000, shell: true });
+      const timer = setTimeout(() => { proc.kill(); resolve(''); }, 5000);
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.on('close', () => { clearTimeout(timer); resolve(stdout.trim()); });
+      proc.on('error', () => { clearTimeout(timer); resolve(''); });
     });
   }
 
   async downloadBun() {
-    return new Promise((resolve) => {
-      const ps = spawn('powershell', [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-        '-Command', 'powershell -c "irm bun.sh/install.ps1 | iex"'
-      ], { windowsHide: true });
-      ps.stdout.on('data', (d) => this.sendLog('brain', d));
-      ps.stderr.on('data', (d) => this.sendLog('brain', d));
-      ps.on('close', (code) => resolve(code === 0));
-      ps.on('error', () => resolve(false));
-    });
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const installed = await new Promise((resolve) => {
+        const timer = setTimeout(() => { ps.kill(); resolve(false); }, 120000);
+        const ps = spawn('powershell', [
+          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-Command', 'powershell -c "irm bun.sh/install.ps1 | iex"'
+        ], { windowsHide: true });
+        ps.stdout.on('data', (d) => this.sendLog('brain', d));
+        ps.stderr.on('data', (d) => this.sendLog('brain', d));
+        ps.on('close', (code) => { clearTimeout(timer); resolve(code === 0); });
+        ps.on('error', () => { clearTimeout(timer); resolve(false); });
+      });
+      if (installed) {
+        // Resolve new Bun path
+        const bunPath = path.join(os.homedir(), '.bun', 'bin', 'bun.exe');
+        if (fs.existsSync(bunPath)) {
+          config.bunPath = bunPath;
+          this.saveConfig();
+        }
+        return true;
+      }
+      if (attempt < MAX_RETRIES) {
+        this.sendLog('brain', `[DOWNLOAD] Bun install attempt ${attempt} failed, retrying...\n`);
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+    }
+    return false;
   }
 
   checkDeps(isCore = true) {
@@ -1599,13 +1971,6 @@ function safeFetch(url, options = {}) {
   });
 }
 
-// Global error handlers
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception in Main Process:', error);
-});
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection in Main Process at:', promise, 'reason:', reason);
-});
 
 // App instance creation and lifecycle
 const sovereignApp = new SovereignDesktopApp();
@@ -1630,4 +1995,16 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   sovereignApp.cleanupProcesses();
+});
+
+app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1') {
+      event.preventDefault();
+      callback(true);
+      return;
+    }
+  } catch {}
+  callback(false);
 });

@@ -1,3 +1,16 @@
+/* ── Toast ─────────────────────────────────────────────────── */
+#toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; font-size: 13px; pointer-events: auto; animation: toast-in .3s ease; min-width: 200px; max-width: 360px; background: var(--bg-card); border: 1px solid var(--border-subtle); }
+.toast-icon { font-size: 16px; flex-shrink: 0; }
+.toast-msg { flex: 1; color: var(--text-primary); }
+.toast-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 0 2px; line-height: 1; }
+.toast-close:hover { color: var(--text-primary); }
+.toast-info .toast-icon { color: var(--accent-cyan); }
+.toast-success .toast-icon { color: var(--accent-green); }
+.toast-error .toast-icon { color: var(--accent-red); }
+.toast-warn .toast-icon { color: var(--accent-amber); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
 /* ── CSS Variables ──────────────────────────────────────────── */
 :root {
   --bg-deepest: #06060f;

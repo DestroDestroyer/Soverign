@@ -83,30 +83,34 @@ export class OllamaProvider implements LLMProvider {
   }
 
   async chat(messages: LLMMessage[], options: LLMOptions = {}): Promise<LLMResponse> {
-    const { model = this.defaultModel, temperature, max_tokens, tools, tool_choice } = options;
+    const { model = this.defaultModel, temperature, max_tokens, num_ctx, tools, keep_alive } = options;
 
-    // Compact history for Ollama's context limits (optimized to 8192 for faster local execution)
-    const budget = calculateHistoryBudget(8192);
-    const compactedMessages = compactHistory(messages, budget);
+    // Compact history budget: if caller specified num_ctx use that, otherwise
+    // let Ollama auto-size (avoids 400 errors on models with small contexts).
+    const ctxSize = num_ctx ?? 4096;
+    const budget = calculateHistoryBudget(ctxSize);
+    const compactedMessages = messages.length < 3 ? messages : compactHistory(messages, budget);
 
+    const keepAlive = keep_alive ?? process.env.SOVEREIGN_OLLAMA_KEEP_ALIVE ?? "2m";
     const body: Record<string, unknown> = {
       model,
       messages: this.convertMessages(compactedMessages),
       stream: false,
-      keep_alive: "30s",
+      keep_alive: keepAlive,
     };
 
-    // Map our cross-provider options to Ollama's `body.options` bag.
-    // Ollama's default `num_predict` is 128 -- way too short for a JSON
-    // composer reply or any structured response. Callers that don't
-    // pass `max_tokens` still get the Ollama default; pass it
-    // explicitly to lift the cap.
+    // Build Ollama options bag — only include fields explicitly set.
+    // DO NOT hardcode num_ctx; many small models (0.5B–1.5B) only support
+    // 2048–4096 tokens and Ollama returns HTTP 400 if num_ctx exceeds
+    // the model's maximum, causing the "AI provider rejected" error.
     const ollamaOptions: Record<string, unknown> = {};
-    ollamaOptions.num_ctx = 8192;
+    if (num_ctx !== undefined) ollamaOptions.num_ctx = num_ctx;
     if (temperature !== undefined) ollamaOptions.temperature = temperature;
+    // Lift the default 128-token cap so responses aren't truncated.
     if (max_tokens !== undefined) ollamaOptions.num_predict = max_tokens;
     if (Object.keys(ollamaOptions).length > 0) body.options = ollamaOptions;
 
+    // Only attach tools if the model should support them (no-op guard).
     if (tools && tools.length > 0) {
       body.tools = this.convertTools(tools);
     }
@@ -122,6 +126,17 @@ export class OllamaProvider implements LLMProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
+      const lowerError = errorText.toLowerCase();
+      // If the model doesn't support tool calls, retry WITHOUT tools.
+      // Guard: only retry if we actually sent tools (prevents infinite loop).
+      if (
+        response.status === 400 &&
+        (lowerError.includes('does not support tools') || lowerError.includes('does not support tool')) &&
+        tools && tools.length > 0
+      ) {
+        console.warn(`[Ollama] Model '${model}' does not support tools — retrying without tools.`);
+        return this.chat(messages, { ...options, tools: undefined });
+      }
       throw new Error(`Ollama API error (${response.status}): ${errorText}`);
     }
 
@@ -130,23 +145,25 @@ export class OllamaProvider implements LLMProvider {
   }
 
   async *stream(messages: LLMMessage[], options: LLMOptions = {}): AsyncIterable<LLMStreamEvent> {
-    const { model = this.defaultModel, temperature, max_tokens, tools, tool_choice } = options;
+    const { model = this.defaultModel, temperature, max_tokens, num_ctx, tools, keep_alive } = options;
 
-    // Compact history for Ollama's context limits (optimized to 8192 for faster local execution)
-    const budget = calculateHistoryBudget(8192);
-    const compactedMessages = compactHistory(messages, budget);
+    // Mirror chat()'s approach: don't hardcode num_ctx.
+    const ctxSize = num_ctx ?? 4096;
+    const budget = calculateHistoryBudget(ctxSize);
+    const compactedMessages = messages.length < 3 ? messages : compactHistory(messages, budget);
 
+    const keepAlive = keep_alive ?? process.env.SOVEREIGN_OLLAMA_KEEP_ALIVE ?? "2m";
     const body: Record<string, unknown> = {
       model,
       messages: this.convertMessages(compactedMessages),
       stream: true,
-      keep_alive: "30s",
+      keep_alive: keepAlive,
     };
 
-    // See chat(): map our cross-provider options to Ollama's bag.
-    // `num_predict` lifts Ollama's 128-token default cap.
+    // See chat() for why num_ctx is optional — hardcoding causes HTTP 400
+    // on small models that have a lower context ceiling.
     const ollamaOptions: Record<string, unknown> = {};
-    ollamaOptions.num_ctx = 8192;
+    if (num_ctx !== undefined) ollamaOptions.num_ctx = num_ctx;
     if (temperature !== undefined) ollamaOptions.temperature = temperature;
     if (max_tokens !== undefined) ollamaOptions.num_predict = max_tokens;
     if (Object.keys(ollamaOptions).length > 0) body.options = ollamaOptions;
@@ -166,6 +183,18 @@ export class OllamaProvider implements LLMProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
+      const lowerError = errorText.toLowerCase();
+      // Retry stream without tools if model doesn't support them.
+      // Guard: only if tools were actually sent (prevents infinite recursion).
+      if (
+        response.status === 400 &&
+        (lowerError.includes('does not support tools') || lowerError.includes('does not support tool')) &&
+        tools && tools.length > 0
+      ) {
+        console.warn(`[Ollama] Model '${model}' does not support tools — retrying stream without tools.`);
+        yield* this.stream(messages, { ...options, tools: undefined });
+        return;
+      }
       yield {
         type: 'error',
         error: `Ollama API error (${response.status}): ${errorText}`,
@@ -257,17 +286,20 @@ export class OllamaProvider implements LLMProvider {
 
   async listModels(): Promise<string[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to list models: ${response.status}`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const response = await fetch(`${this.baseUrl}/api/tags`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json() as { models: OllamaModelInfo[] };
+        return (data.models ?? []).map(m => m.name).sort();
+      } finally {
+        clearTimeout(timer);
       }
-
-      const data = await response.json() as { models: OllamaModelInfo[] };
-      return data.models.map(m => m.name).sort();
     } catch (err) {
-      // Fallback to common models if API call fails
-      return ['llama3', 'llama2', 'mistral', 'mixtral', 'codellama'];
+      // Return empty array — don't return fake models that will cause further errors.
+      console.warn('[Ollama] Could not list models (is Ollama running?):', err instanceof Error ? err.message : err);
+      return [];
     }
   }
 

@@ -31,6 +31,11 @@ class BrainBridge extends EventEmitter {
     this._startReject = null;
     this._starting = false;
     this._forceKillTimer = null;
+    
+    // Circuit Breaker state
+    this.breakerState = 'CLOSED';
+    this.breakerFailures = 0;
+    this.breakerLastAttempt = 0;
   }
 
   /**
@@ -52,6 +57,20 @@ class BrainBridge extends EventEmitter {
         this.once('brain:ready', () => resolve());
         this.once('brain:error', (params) => reject(new Error(params.message)));
       });
+    }
+
+    // Validate bun executable exists and works before spawning
+    const { execFile } = require('child_process');
+    const bunValid = await new Promise((resolve) => {
+      const proc = execFile(bunPath, ['--version'], { windowsHide: true, timeout: 3000 });
+      proc.on('error', () => resolve(false));
+      proc.on('close', (code) => resolve(code === 0));
+    });
+    if (!bunValid) {
+      const msg = `Bun executable not found or invalid: ${bunPath}. Run "Verify & Download" in Settings.`;
+      console.error('[BrainBridge]', msg);
+      this.emit('brain:error', { message: msg });
+      throw new Error(msg);
     }
 
     this._starting = true;
@@ -168,6 +187,17 @@ class BrainBridge extends EventEmitter {
    * @returns {Promise<*>} response result
    */
   async request(method, params, timeout = 30000) {
+    // ─── Circuit Breaker Check ───────────────────────────────────────────────
+    const now = Date.now();
+    if (this.breakerState === 'OPEN') {
+      if (now - this.breakerLastAttempt > 15000) {
+        this.breakerState = 'HALF_OPEN';
+        console.log('[BrainBridge] Circuit Breaker: entering HALF_OPEN state to test connection');
+      } else {
+        throw new Error(`Circuit Breaker is OPEN. Brain request "${method}" rejected.`);
+      }
+    }
+
     if (!this.process || !this.stdin) {
       throw new Error(`Brain not connected (cannot call ${method})`);
     }
@@ -177,10 +207,26 @@ class BrainBridge extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Brain request ${method} timed out after ${timeout}ms`));
+        const err = new Error(`Brain request ${method} timed out after ${timeout}ms`);
+        this._handleBreakerFailure();
+        reject(err);
       }, timeout);
 
-      this.pending.set(id, { resolve, reject, timer });
+      const wrapperResolve = (res) => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        this._handleBreakerSuccess();
+        resolve(res);
+      };
+
+      const wrapperReject = (err) => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        this._handleBreakerFailure();
+        reject(err);
+      };
+
+      this.pending.set(id, { resolve: wrapperResolve, reject: wrapperReject, timer });
 
       const msg = JSON.stringify({ id, method, params }) + '\n';
       try {
@@ -188,9 +234,32 @@ class BrainBridge extends EventEmitter {
       } catch (err) {
         clearTimeout(timer);
         this.pending.delete(id);
+        this._handleBreakerFailure();
         reject(new Error(`Failed to write to brain: ${err.message}`));
       }
     });
+  }
+
+  _handleBreakerSuccess() {
+    if (this.breakerState === 'HALF_OPEN') {
+      console.log('[BrainBridge] Circuit Breaker: HALF_OPEN request succeeded, closing circuit');
+    }
+    this.breakerState = 'CLOSED';
+    this.breakerFailures = 0;
+  }
+
+  _handleBreakerFailure() {
+    this.breakerLastAttempt = Date.now();
+    if (this.breakerState === 'HALF_OPEN') {
+      this.breakerState = 'OPEN';
+      console.warn('[BrainBridge] Circuit Breaker: HALF_OPEN request failed, reopening circuit');
+      return;
+    }
+    this.breakerFailures++;
+    if (this.breakerFailures >= 5) {
+      this.breakerState = 'OPEN';
+      console.error('[BrainBridge] Circuit Breaker: 5 consecutive failures, opening circuit');
+    }
   }
 
   /**

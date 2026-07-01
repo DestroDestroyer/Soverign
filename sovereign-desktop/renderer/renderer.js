@@ -9,6 +9,7 @@ const btnStopBrain = document.getElementById('btn-stop-brain');
 const btnReload = document.getElementById('btn-reload-webview');
 const btnToggleLogs = document.getElementById('btn-toggle-logs');
 const btnSettingsGear = document.getElementById('btn-settings-gear');
+const btnDashboard = document.getElementById('btn-dashboard');
 
 // Dashboard / splash
 const splashView = document.getElementById('splash-view');
@@ -55,6 +56,8 @@ const fieldApiKey = document.getElementById('field-api-key');
 const apiKeyInput = document.getElementById('api-key-input');
 const btnToggleKeyVis = document.getElementById('btn-toggle-key-vis');
 const customModelInput = document.getElementById('custom-model-input');
+const fieldOllamaUrl = document.getElementById('field-ollama-url');
+const ollamaUrlInput = document.getElementById('ollama-url-input');
 const btnSaveApiConfig = document.getElementById('btn-save-api-config');
 const fieldLocalGguf = document.getElementById('field-local-gguf');
 const txtPullModel = document.getElementById('txt-pull-model');
@@ -109,6 +112,7 @@ let daemonRunning = false;
 let brainRunning = false;
 let brainStarting = false;
 let statusCheckInProgress = false;
+let lastOllamaCheck = 0;
 let webviewLoaded = false;
 
 // ── Init ───────────────────────────────────────────────────
@@ -123,6 +127,7 @@ async function init() {
   const apiConfig = await window.api.getApiConfig();
   if (selLlmProvider) selLlmProvider.value = (apiConfig && apiConfig.provider) ? apiConfig.provider : 'ollama';
   if (apiKeyInput) apiKeyInput.value = (apiConfig && apiConfig.apiKey) || '';
+  if (ollamaUrlInput) ollamaUrlInput.value = (apiConfig && apiConfig.baseUrl) || 'http://127.0.0.1:11434';
   if (customModelInput) customModelInput.value = (apiConfig && apiConfig.customModel) || '';
   if (apiConfig && apiConfig.customModel) updateOllamaDefaultDisplay(apiConfig.customModel);
 
@@ -185,6 +190,7 @@ async function init() {
   // Periodic check every 8s (was 3s — reduced for CPU)
   const statusIntervalId = setInterval(checkSystemStatus, 8000);
   window.__statusIntervalId = statusIntervalId;
+  window.addEventListener('beforeunload', () => clearInterval(statusIntervalId));
 }
 
 // ── Event Listeners ────────────────────────────────────────
@@ -198,12 +204,13 @@ function setupEventListeners() {
       appendLog('daemon', '[SYSTEM] Reloading interface...\n');
       webviewLoaded = false;
       sovereignWebview.reload();
-      webviewLoaded = true;
+      // webviewLoaded is set back to true inside the did-finish-load handler.
     }
   });
   if (btnToggleLogs) btnToggleLogs.addEventListener('click', () => logsDrawer?.classList.toggle('collapsed'));
   if (btnCloseLogs && logsDrawer) btnCloseLogs.addEventListener('click', () => logsDrawer.classList.add('collapsed'));
   if (btnClearLogs) btnClearLogs.addEventListener('click', () => { if (daemonTerminal) daemonTerminal.textContent = ''; });
+  if (btnDashboard) btnDashboard.addEventListener('click', showDashboard);
 
   // Settings panel
   if (btnSettingsGear) btnSettingsGear.addEventListener('click', toggleSettings);
@@ -224,7 +231,16 @@ function setupEventListeners() {
 
   // Brain chat
   if (brainChatSend) brainChatSend.addEventListener('click', sendBrainChat);
-  if (brainChatInput) brainChatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendBrainChat(); });
+  if (brainChatInput) {
+    brainChatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (!e.shiftKey) {
+          e.preventDefault();
+          sendBrainChat();
+        }
+      }
+    });
+  }
 
   // Settings - General
   if (btnScanHw) btnScanHw.addEventListener('click', scanHardwareSettings);
@@ -263,13 +279,13 @@ function setupEventListeners() {
     if (sovereignWebview) {
       webviewLoaded = false;
       sovereignWebview.reload();
-      webviewLoaded = true;
     }
   });
 
   // Webview listeners
   if (sovereignWebview) {
     sovereignWebview.addEventListener('did-finish-load', () => {
+      webviewLoaded = true;
       document.getElementById('reconnect-overlay')?.classList.add('hidden');
     });
     sovereignWebview.addEventListener('did-fail-load', () => {
@@ -288,18 +304,34 @@ function toggleSettings() {
   if (isOpen) checkServiceStatus();
 }
 
+// ── Dashboard toggle ───────────────────────────────────────
+function showDashboard() {
+  // Hide splash if visible
+  splashView?.classList.add('hidden');
+  // Show dashboard
+  dashboardView?.classList.remove('hidden');
+  // Close settings if open
+  settingsPanel?.classList.remove('open', 'hidden');
+  dashboardView?.classList.remove('settings-open');
+  // Load webview if not already loaded
+  if (sovereignWebview && !webviewLoaded) loadWebview();
+  // Update brain status UI
+  updateBrainUI(brainRunning, false, brainStarting);
+}
+
 // ── LLM field visibility & provider-specific model listing ─
 function toggleLlmFields() {
   if (!selLlmProvider) return;
   const val = selLlmProvider.value;
   const needsKey = !['ollama', 'local'].includes(val);
   if (fieldApiKey) fieldApiKey.style.display = needsKey ? 'block' : 'none';
+  if (fieldOllamaUrl) fieldOllamaUrl.style.display = val === 'ollama' ? 'block' : 'none';
   if (fieldLocalGguf) fieldLocalGguf.style.display = val === 'local' ? 'block' : 'none';
   updateProviderModelList(val);
 }
 
 const PROVIDER_MODEL_HINTS = {
-  local: 'Place .gguf files in C:\\Users\\Akash\\.sovereign\\models\\ for local inference.',
+  local: 'Place .gguf files in ~\\.sovereign\\models\\ for local inference.',
   anthropic: 'Supported models: claude-sonnet-4-6, claude-3-5-haiku-latest, claude-3-opus-latest',
   openai: 'Supported models: gpt-4o-mini, gpt-4o, gpt-4.1, o3, o4-mini',
   gemini: 'Supported models: gemini-2.5-flash, gemini-2.5-pro, gemini-1.5-flash',
@@ -431,9 +463,10 @@ async function saveApiConfig() {
   const provider = selLlmProvider.value;
   const apiKey = apiKeyInput.value.trim();
   const customModel = customModelInput.value.trim();
+  const baseUrl = ollamaUrlInput ? ollamaUrlInput.value.trim() : '';
   const needsKey = !['ollama', 'local'].includes(provider);
   if (needsKey && !apiKey) { showToast('Please enter an API Key!', 'warn'); return; }
-  const result = await window.api.saveApiConfig({ provider, apiKey, customModel });
+  const result = await window.api.saveApiConfig({ provider, apiKey, customModel, baseUrl });
   if (result.success) {
     if (provider === 'ollama') updateOllamaDefaultDisplay(customModel);
     if (selOllamaModel && customModel) {
@@ -484,6 +517,7 @@ async function pullModel() {
   if (!txtPullModel || !btnPullModel) return;
   const modelName = txtPullModel.value.trim();
   if (!modelName) { showToast('Enter a model name.', 'warn'); return; }
+  if (modelName.includes(' ')) { showToast('Model name cannot contain spaces.', 'warn'); return; }
   btnPullModel.disabled = true;
   btnPullModel.textContent = '📥 Downloading...';
   logsDrawer?.classList.remove('collapsed');
@@ -532,6 +566,11 @@ async function setOllamaDefaultModel() {
   if (!selOllamaModel || !customModelInput || !ollamaCurrentDefault) return;
   const model = selOllamaModel.value;
   if (!model) { showToast('Select a model first.', 'warn'); return; }
+  // Explicitly switch provider dropdown to 'ollama' so saveApiConfig()
+  // doesn't accidentally save this model under whichever provider was
+  // last selected (e.g. Anthropic).
+  if (selLlmProvider) selLlmProvider.value = 'ollama';
+  if (apiKeyInput) apiKeyInput.value = '';
   customModelInput.value = model;
   ollamaCurrentDefault.textContent = model;
   await saveApiConfig();
@@ -589,17 +628,19 @@ async function checkSystemStatus() {
   if (statusCheckInProgress) return;
   statusCheckInProgress = true;
   try {
-    const daemonStatus = await window.api.checkDaemonStatus();
-    const brainStatus = await window.api.brainStatus();
-    daemonRunning = daemonStatus;
-    brainRunning = brainStatus.running;
+    const status = await window.api.getSystemStatus();
+    daemonRunning = status.daemonRunning;
+    brainRunning = status.brainRunning;
+    brainStarting = status.brainStarting;
 
-    const elapsed = Date.now() - appStartTime;
-    brainStarting = !brainRunning && !brainStatus.error && elapsed < 35000;
+    updateBrainUI(brainRunning, status.brainError, brainStarting);
 
-    updateBrainUI(brainStatus.running, brainStatus.error, brainStarting);
-
-    const health = daemonStatus ? await window.api.healthCheck() : null;
+    // Auto-retry Ollama status polling every 30s if selected provider is Ollama
+    const now = Date.now();
+    if (selLlmProvider && selLlmProvider.value === 'ollama' && (now - lastOllamaCheck > 30000)) {
+      lastOllamaCheck = now;
+      checkOllamaServer().catch(() => {});
+    }
 
     // Mirror status to settings panel
     if (spBrainDot && spBrainText) {
@@ -608,15 +649,12 @@ async function checkSystemStatus() {
       else { spBrainDot.className = 'status-dot-sm stopped'; spBrainText.textContent = 'Offline'; }
     }
     if (spHealthDot && spHealthText) {
-      if (health && health.status === 'running') { spHealthDot.className = 'status-dot-sm running'; spHealthText.textContent = 'Port ' + health.port + ' active'; }
+      if (status.health && status.health.status === 'running') { spHealthDot.className = 'status-dot-sm running'; spHealthText.textContent = 'Port ' + status.health.port + ' active'; }
       else { spHealthDot.className = 'status-dot-sm stopped'; spHealthText.textContent = 'Not responding'; }
     }
     if (spServiceDot && spServiceText) {
-      try {
-        const s = await window.api.checkServiceInstalled();
-        if (s?.daemon || s === true) { spServiceDot.className = 'status-dot-sm running'; spServiceText.textContent = 'Installed'; }
-        else { spServiceDot.className = 'status-dot-sm stopped'; spServiceText.textContent = 'Not installed'; }
-      } catch { spServiceDot.className = 'status-dot-sm stopped'; spServiceText.textContent = 'Unknown'; }
+      if (status.serviceInstalled) { spServiceDot.className = 'status-dot-sm running'; spServiceText.textContent = 'Installed'; }
+      else { spServiceDot.className = 'status-dot-sm stopped'; spServiceText.textContent = 'Not installed'; }
     }
 
     if (brainRunning && !webviewLoaded) {
@@ -807,15 +845,28 @@ async function sendBrainChat() {
   sendBtn.disabled = true;
 
   const userMsg = document.createElement('div');
-  userMsg.style = 'align-self:flex-end; background:linear-gradient(135deg,#3a3a8a,#2a2a6a); padding:8px 12px; border-radius:10px; border-bottom-right-radius:4px; max-width:80%; font-size:13px; line-height:1.5; word-wrap:break-word;';
+  userMsg.style = 'align-self:flex-end; background:linear-gradient(135deg,#3a3a8a,#2a2a6a); padding:8px 12px; border-radius:10px; border-bottom-right-radius:4px; max-width:80%; font-size:13px; line-height:1.5; word-wrap:break-word; cursor:pointer;';
+  userMsg.title = 'Click to copy';
   userMsg.textContent = text;
+  userMsg.addEventListener('click', () => {
+    navigator.clipboard.writeText(userMsg.textContent)
+      .then(() => showToast('Copied to clipboard!', 'success'))
+      .catch((err) => showToast('Failed to copy: ' + err.message, 'error'));
+  });
   messagesEl.appendChild(userMsg);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
   const asstMsg = document.createElement('div');
-  asstMsg.style = 'align-self:flex-start; background:rgba(30,30,70,0.6); border:1px solid #2a2a5a; padding:8px 12px; border-radius:10px; border-bottom-left-radius:4px; max-width:80%; font-size:13px; line-height:1.5; word-wrap:break-word; color:#8888cc;';
+  asstMsg.style = 'align-self:flex-start; background:rgba(30,30,70,0.6); border:1px solid #2a2a5a; padding:8px 12px; border-radius:10px; border-bottom-left-radius:4px; max-width:80%; font-size:13px; line-height:1.5; word-wrap:break-word; color:#8888cc; cursor:pointer;';
+  asstMsg.title = 'Click to copy';
   asstMsg.id = 'brain-chat-pending';
   asstMsg.innerHTML = '<span class="chat-thinking-dot"></span><span class="chat-thinking-dot"></span><span class="chat-thinking-dot"></span> <span style="color:#6666aa;font-size:11px">thinking</span>';
+  asstMsg.addEventListener('click', () => {
+    if (asstMsg.id === 'brain-chat-pending') return;
+    navigator.clipboard.writeText(asstMsg.textContent)
+      .then(() => showToast('Copied to clipboard!', 'success'))
+      .catch((err) => showToast('Failed to copy: ' + err.message, 'error'));
+  });
   messagesEl.appendChild(asstMsg);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 

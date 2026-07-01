@@ -1,4 +1,5 @@
-import { Service, bus, logger } from './interfaces';
+import { Service, bus } from './interfaces';
+import { logger } from './logger';
 
 export class Daemon implements Service {
   private running = false;

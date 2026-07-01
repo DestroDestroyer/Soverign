@@ -1,5 +1,5 @@
 import React from "react";
-import { Bell, Search } from "lucide-react";
+import { ArrowLeftRight, Bell, Search } from "lucide-react";
 import { Button, Icon, KBD } from "../ui";
 import "./Header.css";
 
@@ -24,31 +24,25 @@ export interface HeaderProps {
   /** @deprecated kept for prop compatibility — no longer rendered. */
   onModeChange?: (next: Mode) => void;
   onPalette?: () => void;
-  /**
-   * Count of unread notifications. 0 = no badge. Anything > 9 is rendered
-   * as "9+" so a noisy queue doesn't blow the bell's pill width.
-   */
+  viewMode?: "chat" | "graph";
+  onViewModeChange?: (next: "chat" | "graph") => void;
   notificationCount?: number;
-  /** Marks the bell visually pressed while the drawer is open. */
   notificationsOpen?: boolean;
-  /** Optional bell click handler — also receives ⌥N hotkey upstream. */
   onToggleNotifications?: () => void;
-  /**
-   * Render-prop slot for the drawer itself. The Header positions the bell
-   * inside a `position: relative` wrapper so the drawer can anchor to it
-   * without the AppShell needing to know the bell's coordinates.
-   */
   notificationsSlot?: React.ReactNode;
 }
 
 export function Header({
   connection = "live",
   onPalette,
+  viewMode = "chat",
+  onViewModeChange,
   notificationCount = 0,
   notificationsOpen = false,
   onToggleNotifications,
   notificationsSlot,
 }: HeaderProps) {
+  const isGraph = viewMode === "graph";
   const hasUnread = notificationCount > 0;
   const badgeText = notificationCount > 9 ? "9+" : String(notificationCount);
   const bellLabel = hasUnread
@@ -64,6 +58,17 @@ export function Header({
       </div>
 
       <div className="v2-header__right">
+        <button
+          type="button"
+          className="v2-header__iconbtn"
+          data-graph={isGraph || undefined}
+          onClick={() => onViewModeChange?.(isGraph ? "chat" : "graph")}
+          aria-label={isGraph ? "Switch to chat" : "Switch to memory graph"}
+          title={isGraph ? "Chat" : "Memory Graph"}
+        >
+          <Icon icon={ArrowLeftRight} size="md" />
+        </button>
+
         <button
           type="button"
           className="v2-header__palette"

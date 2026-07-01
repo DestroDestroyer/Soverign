@@ -1,6 +1,7 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useV2Route } from "./router";
 import { AppShell } from "./shell/AppShell";
+import { GraphDashboard } from "./shell/GraphDashboard";
 import { PrimitivesPage } from "./pages/PrimitivesPage";
 import { RoomDispatcher } from "./rooms/RoomDispatcher";
 import { RoomActionBusProvider, useRoomActionDispatcher } from "./rooms/useRoomActionBus";
@@ -10,8 +11,11 @@ import { OnboardingGate } from "./onboarding/OnboardingGate";
 import { PalettePage } from "./pages/PalettePage";
 import { TaskResultRoom } from "./rooms/taskResult/TaskResultRoom";
 import { AnswerRoom } from "./rooms/answer/AnswerRoom";
+import { ArrowLeftRight } from "lucide-react";
 import "./v2.css";
 import "./ui/primitives.css";
+
+type ViewMode = "chat" | "graph";
 
 /**
  * v2 root. Always renders the AppShell (so the thread is preserved across
@@ -32,6 +36,7 @@ import "./ui/primitives.css";
  */
 export function AppShellV2() {
   const route = useV2Route();
+  const [viewMode, setViewMode] = useState<ViewMode>("chat");
 
   useEffect(() => {
     maybeRunUrlReset().catch(() => {
@@ -93,10 +98,25 @@ export function AppShellV2() {
     );
   }
 
+  const isGraph = viewMode === "graph";
+
   return (
     <div className="sovereign-v2-root">
-      {/* Panel mode body sits above this guard. */}
-      {route.kind === "primitives" ? (
+      {/* Persistent mode toggle — always visible */}
+      <button
+        type="button"
+        className="v2-mode-toggle"
+        data-graph={isGraph}
+        onClick={() => setViewMode(isGraph ? "chat" : "graph")}
+        aria-label={isGraph ? "Switch to chat" : "Switch to memory graph"}
+        title={isGraph ? "Chat" : "Memory Graph"}
+      >
+        <ArrowLeftRight size={18} />
+      </button>
+
+      {isGraph ? (
+        <GraphDashboard />
+      ) : route.kind === "primitives" ? (
         <PrimitivesPage />
       ) : (
         <OnboardingGate>

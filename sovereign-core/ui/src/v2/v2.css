@@ -240,3 +240,43 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ── Outer mode toggle (memory graph ↔ chat) ── */
+.v2-mode-toggle {
+  position: fixed;
+  z-index: 9999;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: var(--hair);
+  border-radius: var(--r-1);
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.v2-mode-toggle:hover {
+  background: var(--paper-3);
+  color: var(--ink);
+}
+
+.v2-mode-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.v2-mode-toggle[data-graph="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.v2-mode-toggle[data-graph="true"]:hover {
+  opacity: 0.85;
+}

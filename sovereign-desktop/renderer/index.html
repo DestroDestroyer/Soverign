@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*; img-src 'self' data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sovereign Desktop Console</title>
   <link rel="stylesheet" href="index.css">
@@ -38,6 +39,7 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="btn-dashboard" class="btn btn-outline btn-sm" title="Dashboard">🏠</button>
         <button id="btn-start-brain" class="btn btn-primary btn-sm">Start</button>
         <button id="btn-stop-brain" class="btn btn-secondary btn-sm" disabled>Stop</button>
         <button id="btn-reload-webview" class="btn btn-outline btn-sm" title="Reload Interface">🔄</button>
@@ -89,7 +91,7 @@
           </div>
           <div id="brain-chat-messages" style="flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:6px;"></div>
           <div id="brain-chat-input-area" style="display:flex; gap:8px; padding:10px 16px; background:rgba(20,20,50,0.8); border-top:1px solid #2a2a5a; flex-shrink:0;">
-            <input type="text" id="brain-chat-input" placeholder="Type a message..." style="flex:1; padding:8px 12px; border-radius:6px; border:1px solid #3a3a7a; background:rgba(0,0,0,0.3); color:#e0e0ff; font-size:13px; outline:none;">
+            <textarea id="brain-chat-input" placeholder="Type a message..." style="flex:1; padding:8px 12px; border-radius:6px; border:1px solid #3a3a7a; background:rgba(0,0,0,0.3); color:#e0e0ff; font-size:13px; outline:none; resize:none; height:34px; box-sizing:border-box; font-family:inherit;"></textarea>
             <button id="brain-chat-send" style="padding:8px 16px; border-radius:6px; border:none; background:linear-gradient(135deg,#00f2fe,#4a00e0); color:#fff; font-size:13px; font-weight:600; cursor:pointer;">Send</button>
           </div>
         </div>
@@ -179,6 +181,10 @@
                     <input type="password" id="api-key-input" placeholder="Paste API key..." autocomplete="new-password">
                     <button class="btn-icon" id="btn-toggle-key-vis" type="button">👁️</button>
                   </div>
+                </div>
+                <div class="settings-field" id="field-ollama-url" style="display:none;">
+                  <label>Ollama Base URL</label>
+                  <input type="text" id="ollama-url-input" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
                 </div>
                 <div class="settings-field" id="field-custom-model">
                   <label>Custom Model ID</label>

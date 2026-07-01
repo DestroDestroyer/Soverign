@@ -4,7 +4,53 @@
   "description": "Standalone Desktop Control Console for Sovereign",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "dist:portable": "electron-builder --win portable --publish never",
+    "postinstall": "node -e \"require('fs').existsSync('node_modules/electron/dist/electron.exe') || console.log('Run: powershell -File download_electron.ps1 if electron fails to download')\""
+  },
+  "build": {
+    "appId": "com.sovereign.desktop-console",
+    "productName": "Sovereign AI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "brain-bridge.js",
+      "validate.js",
+      "renderer/**/*",
+      "scripts/**/*",
+      "watchdog.ps1",
+      "../sovereign-core/src/**/*",
+      "../sovereign-core/package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../sovereign-core",
+        "to": "sovereign-core",
+        "filter": ["**/*", "!node_modules/**", "!ui/dist/**"]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": null,
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "Sovereign AI"
+    },
+    "portable": {
+      "artifactName": "Sovereign-AI-${version}-portable.${ext}"
+    }
   },
   "keywords": [
     "sovereign",
@@ -15,6 +61,7 @@
   "author": "Antigravity",
   "license": "ISC",
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^25.1.8"
   }
 }

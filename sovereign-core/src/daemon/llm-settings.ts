@@ -395,7 +395,7 @@ export function hotReloadLLMProviders(config: SovereignConfig, llmManager: LLMMa
   // Atomic single-step swap: build the new provider list, then replaceProviders
   // does the map swap in one assignment. In-flight requests see EITHER the
   // old map or the new one, never an empty/partial map.
-  const built = atomicReloadProviders(llmManager, enrichedProviders);
+  const built = atomicReloadProviders(llmManager, enrichedProviders, config.llm.default);
   if (built.length === 0) {
     console.warn('[LLM] Hot-reload: no providers registered (all entries missing credentials).');
   }

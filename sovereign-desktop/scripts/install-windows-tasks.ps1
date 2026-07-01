@@ -45,7 +45,7 @@ if (-not (Test-Path $logFile))  { New-Item -ItemType File    -Path $logFile -For
 $configFile = Join-Path $dataDir "config.yaml"
 $defaultConfig = @"
 llm:
-  default: "ollama:qwen2.5:1.5b"
+  default: "ollama:qwen2.5:0.5b"
   providers:
     ollama:
       kind: ollama

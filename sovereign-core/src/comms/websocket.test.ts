@@ -334,6 +334,26 @@ test('WebSocketServer - WebSocket blocked without auth cookie', async () => {
     // Regular HTTP fetch to /ws without cookie → 401 JSON
     const res = await fetch('http://localhost:3154/ws');
     expect(res.status).toBe(401);
+
+    // Actual WebSocket connection should receive an Unauthorized error frame then close
+    const ws = new WebSocket('ws://localhost:3154/ws');
+    const received: WSMessage[] = [];
+
+    const closed = await new Promise<boolean>((resolve) => {
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          received.push(JSON.parse(e.data));
+        }
+      };
+      ws.onclose = () => resolve(true);
+      ws.onerror = () => resolve(false);
+      setTimeout(() => resolve(false), 2000);
+    });
+
+    expect(closed).toBe(true);
+    expect(received.length).toBe(1);
+    expect(received[0]!.type).toBe('error');
+    expect((received[0]!.payload as any).message).toBe('Unauthorized');
   } finally {
     authServer.stop();
   }

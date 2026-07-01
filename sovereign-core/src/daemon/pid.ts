@@ -134,9 +134,12 @@ export function isLocked(lockPath: string = LOCK_PATH): number | null {
     try {
       process.kill(pid, 0);
       return pid;
-    } catch {
-      try { unlinkSync(lockPath); } catch {}
-      return null;
+    } catch (err: any) {
+      if (err && err.code === 'ESRCH') {
+        try { unlinkSync(lockPath); } catch {}
+        return null;
+      }
+      return pid;
     }
   }
 

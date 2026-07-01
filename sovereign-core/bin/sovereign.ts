@@ -252,7 +252,14 @@ async function cmdStop(args: string[] = []): Promise<void> {
     let alive = true;
     for (let i = 0; i < 16; i++) {
       await new Promise(resolve => setTimeout(resolve, 500));
-      try { process.kill(pid, 0); } catch { alive = false; break; }
+      try {
+        process.kill(pid, 0);
+      } catch (err: any) {
+        if (err && err.code === 'ESRCH') {
+          alive = false;
+          break;
+        }
+      }
     }
 
     if (alive) {

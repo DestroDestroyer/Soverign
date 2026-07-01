@@ -915,3 +915,89 @@ describe('classifyErrorString', () => {
     expect(classifyErrorString('')).toBe('unknown');
   });
 });
+
+describe('OllamaProvider fallback when tool calling is not supported', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('chat retries without tools when model does not support tools', async () => {
+    let callCount = 0;
+    globalThis.fetch = mock(async (url: string, init?: RequestInit) => {
+      callCount++;
+      const body = JSON.parse(String(init?.body));
+
+      if (callCount === 1) {
+        expect(body.tools).toBeDefined();
+        return new Response(
+          JSON.stringify({ error: "model 'some-model' does not support tools" }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      expect(body.tools).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          model: 'some-model',
+          created_at: '2026-06-29T00:00:00Z',
+          message: { role: 'assistant', content: 'hello without tools' },
+          done: true,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as unknown as typeof fetch;
+
+    const provider = new OllamaProvider('http://localhost:11434', 'some-model');
+    const response = await provider.chat([{ role: 'user', content: 'hello' }], {
+      tools: [{ name: 'dummy_tool', description: 'desc', parameters: {} }],
+    });
+
+    expect(callCount).toBe(2);
+    expect(response.content).toBe('hello without tools');
+  });
+
+  test('stream retries without tools when model does not support tools', async () => {
+    let callCount = 0;
+    globalThis.fetch = mock(async (url: string, init?: RequestInit) => {
+      callCount++;
+      const body = JSON.parse(String(init?.body));
+
+      if (callCount === 1) {
+        expect(body.tools).toBeDefined();
+        return new Response(
+          JSON.stringify({ error: "model 'some-model' does not support tools" }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      expect(body.tools).toBeUndefined();
+      const streamData = JSON.stringify({
+        model: 'some-model',
+        created_at: '2026-06-29T00:00:00Z',
+        message: { role: 'assistant', content: 'stream without tools' },
+        done: true,
+      }) + '\n';
+
+      return new Response(streamData, {
+        status: 200,
+        headers: { 'Content-Type': 'application/x-ndjson' },
+      });
+    }) as unknown as typeof fetch;
+
+    const provider = new OllamaProvider('http://localhost:11434', 'some-model');
+    const generator = provider.stream([{ role: 'user', content: 'hello' }], {
+      tools: [{ name: 'dummy_tool', description: 'desc', parameters: {} }],
+    });
+
+    const events = [];
+    for await (const event of generator) {
+      events.push(event);
+    }
+
+    expect(callCount).toBe(2);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'text', text: 'stream without tools' }));
+  });
+});
+

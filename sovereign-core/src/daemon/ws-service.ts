@@ -880,6 +880,18 @@ export class WebSocketService implements Service {
       };
     }
 
+    if ((this.chatConcurrencyCount ?? 0) >= 3) {
+      return {
+        type: 'error',
+        payload: {
+          code: 'rate_limited',
+          message: 'Too many concurrent chat requests. Please wait for previous requests to complete.',
+        },
+        id: msg.id,
+        timestamp: Date.now(),
+      };
+    }
+
     const channel = payload.channel ?? 'websocket';
     const requestId = msg.id ?? crypto.randomUUID();
 
@@ -1007,6 +1019,7 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
     }
 
     // Persist user message
+    this.chatConcurrencyCount = (this.chatConcurrencyCount ?? 0) + 1;
     try {
       const conversation = getOrCreateConversation(channel);
       recordUserProfileTurn(text);
@@ -1194,8 +1207,11 @@ CRITICAL — when in genuine doubt between "make in a new project" vs "add to th
         id: requestId,
         timestamp: Date.now(),
       };
+    } finally {
+      this.chatConcurrencyCount = Math.max(0, (this.chatConcurrencyCount ?? 1) - 1);
     }
   }
+
 
   /**
    * Handle binary audio data from voice recording.

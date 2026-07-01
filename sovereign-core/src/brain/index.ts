@@ -82,8 +82,44 @@ import { MemorySweeper } from "../vault/memory/sweeper.ts";
 import { MemorySummarizer } from "../vault/memory/summarizer.ts";
 import { GraphPipeline } from "../vault/graph/pipeline.ts";
 import { ObsidianVault } from "../vault/sources/obsidian.ts";
+import { SecondBrain, detectProjects } from "../second-brain/index.ts";
+import { ThirdBrain } from "../third-brain/index.ts";
 
 const DEFAULT_DATA_DIR = path.join(os.homedir(), ".sovereign");
+
+// ── Console Monkey-Patch for PII Redaction ───────────────────────────────────
+function redactPII(arg: any): any {
+  if (typeof arg !== 'string') {
+    try {
+      arg = JSON.stringify(arg);
+    } catch {
+      return arg;
+    }
+  }
+  let text = arg;
+  text = text.replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{10,}/g, '$1[REDACTED]');
+  text = text.replace(/(api_key["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+  text = text.replace(/(apiKey["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+  text = text.replace(/(password["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{4,}(["'])/gi, '$1[REDACTED]$2');
+  text = text.replace(/(token["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+  text = text.replace(/(secret["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+  return text;
+}
+
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+
+console.log = (...args: any[]) => {
+  originalLog(...args.map(redactPII));
+};
+console.error = (...args: any[]) => {
+  originalError(...args.map(redactPII));
+};
+console.warn = (...args: any[]) => {
+  originalWarn(...args.map(redactPII));
+};
+
 
 export interface BrainConfig {
   dataDir: string;
@@ -116,6 +152,8 @@ let eventBus: BrainEventBus | null = null;
 let ipc: BrainIPC | null = null;
 let memorySweeper: MemorySweeper | null = null;
 let memorySummarizer: MemorySummarizer | null = null;
+let secondBrain: SecondBrain | null = null;
+let thirdBrain: ThirdBrain | null = null;
 
 function parseArgs(): Partial<BrainConfig> {
   const args = process.argv.slice(2);
@@ -194,6 +232,8 @@ async function handleShutdown(signal: string): Promise<void> {
     if (bgAgent) { await bgAgent.stop(); bgAgent = null; }
     if (memorySweeper) { memorySweeper.stop(); memorySweeper = null; }
     if (memorySummarizer) { memorySummarizer.stop(); memorySummarizer = null; }
+    if (secondBrain) { await secondBrain.stop(); secondBrain = null; }
+    if (thirdBrain) { await thirdBrain.stop(); thirdBrain = null; }
     if (healthMonitor) { healthMonitor.stop(); }
     if (registry) { await registry.stopAll(); }
     if (triggerManager) { await triggerManager.stop(); triggerManager = null; }
@@ -560,6 +600,54 @@ export async function createBrain(
     return { notes: obsidianVault.search(params?.query ?? "").map(n => ({ name: n.name, tags: n.tags })) };
   });
 
+  // Initialize unified SecondBrain orchestrator
+  secondBrain = new SecondBrain(
+    { memoryOrchestrator, graphPipeline, obsidianVault },
+    {
+      vaultPath: sovereignConfig.obsidian?.vaultPath || "",
+      chatImportEnabled: true,
+      defaultModel: sovereignConfig.llm?.default?.split(":")[1] || "qwen2.5:0.5b",
+      lowSpecMode: sovereignConfig.lowSpecMode || false,
+    },
+    (msg) => { console.log(msg); emitToHost("brain:log", { message: msg }); },
+  );
+
+  // Detect and add graphify projects automatically
+  const projects = detectProjects();
+  for (const p of projects) secondBrain.addGraphifyProject(p);
+
+  // Register Second Brain IPC handlers
+  ipc.register("second-brain.resume", async (params: any) => {
+    if (!secondBrain) return { error: "Second brain not initialized" };
+    const ctx = await secondBrain.resumeSession(params?.projectDir);
+    return { summary: ctx.summary, recentLogs: ctx.recentLogs.length, pendingItems: ctx.pendingItems };
+  });
+  ipc.register("second-brain.save", async (params: any) => {
+    if (!secondBrain) return { error: "Second brain not initialized" };
+    const path = await secondBrain.saveSession(params);
+    return { path };
+  });
+  ipc.register("second-brain.scan-graphify", async (params: any) => {
+    if (!secondBrain) return { error: "Second brain not initialized" };
+    const graph = await secondBrain.scanGraphifyProject(params?.project);
+    return { nodeCount: graph.nodes.length, edgeCount: graph.edges.length };
+  });
+  ipc.register("second-brain.import-chats", async () => {
+    if (!secondBrain) return { error: "Second brain not initialized" };
+    const imports = await secondBrain.importChats();
+    return { count: imports.length };
+  });
+  ipc.register("second-brain.setup-vault", async (params: any) => {
+    if (!secondBrain) return { error: "Second brain not initialized" };
+    const path = secondBrain.setupVault(params?.vaultPath);
+    return { vaultPath: path };
+  });
+  ipc.register("second-brain.store-note", async (params: any) => {
+    if (!secondBrain) return { error: "Second brain not initialized" };
+    const path = await secondBrain.storeNote(params?.title || "Untitled", params?.tags || [], params?.body || "");
+    return { path };
+  });
+
   // Process existing vault entities through graph pipeline
   (async () => {
     try {
@@ -575,7 +663,45 @@ export async function createBrain(
 
   if (memorySweeper) memorySweeper.start();
   if (memorySummarizer) memorySummarizer.start();
-  console.log("[Brain] Second Brain modules initialized (memory, graph, obsidian)");
+  if (secondBrain) secondBrain.start().catch(err => console.warn("[Brain] SecondBrain start warning:", err.message));
+  console.log("[Brain] Second Brain modules initialized (memory, graph, obsidian, second-brain)");
+
+  // ── Step 12c: Initialize Third Brain (web intelligence) ──────
+  thirdBrain = new ThirdBrain(
+    { memoryOrchestrator, graphPipeline },
+    {
+      searchProvider: sovereignConfig.web?.searchProvider ?? "duckduckgo",
+      searchEndpoint: sovereignConfig.web?.searchEndpoint ?? "http://localhost:8888",
+      searchApiKey: sovereignConfig.web?.searchApiKey ?? null,
+      autoStore: true,
+    },
+    (msg) => { console.log(msg); emitToHost("brain:log", { message: msg }); },
+  );
+  thirdBrain.start().catch(err => console.warn("[Brain] ThirdBrain start warning:", err.message));
+
+  // Register Third Brain IPC handlers
+  ipc.register("web.search", async (params: any) => {
+    if (!thirdBrain) return { error: "Third brain not initialized", results: [] };
+    const query = params?.query ?? params?.q ?? "";
+    if (!query) return { error: "No query provided", results: [] };
+    const results = await thirdBrain.search(query, params?.maxResults);
+    return { results };
+  });
+  ipc.register("web.scrape", async (params: any) => {
+    if (!thirdBrain) return { error: "Third brain not initialized", result: null };
+    const url = params?.url ?? "";
+    if (!url) return { error: "No URL provided", result: null };
+    const result = await thirdBrain.scrape(url);
+    return { result };
+  });
+  ipc.register("web.search-and-scrape", async (params: any) => {
+    if (!thirdBrain) return { error: "Third brain not initialized", searchResults: [], scrapedPages: [] };
+    const query = params?.query ?? "";
+    if (!query) return { error: "No query provided", searchResults: [], scrapedPages: [] };
+    const data = await thirdBrain.searchThenScrape(query, params?.scrapeCount);
+    return data;
+  });
+  console.log("[Brain] Third Brain initialized (web search + scrape)");
 
   // ── Step 13: UI build + API routes ──────────────────────────────
   const uiDistDir = path.join(import.meta.dir, "../../ui/dist");
@@ -849,6 +975,112 @@ export async function createBrain(
     if (!toolRegistry.has("recall")) {
       toolRegistry.register(createRecallTool());
       console.log("[Brain] Registered recall tool");
+    }
+
+    // Register Second Brain session tools
+    if (secondBrain) {
+      const createResumeTool = () => ({
+        name: "resume_session",
+        description: "Resume context from recent session logs, decisions, and pending items. Restores project state between sessions.",
+        category: "memory",
+        parameters: {
+          projectDir: { type: "string", description: "Optional project directory for architecture notes", required: false },
+        },
+        execute: async (params: any) => {
+          const ctx = await secondBrain!.resumeSession(params?.projectDir);
+          return ctx.summary;
+        },
+      });
+      const createSaveTool = () => ({
+        name: "save_session",
+        description: "Save current session as a log entry with what was done, decisions made, and pending items. Records progress to the vault and memory.",
+        category: "memory",
+        parameters: {
+          description: { type: "string", description: "Brief session description", required: true },
+          whatWasDone: { type: "array", items: { type: "string" }, description: "List of completed items", required: true },
+          decisions: { type: "array", items: { type: "string" }, description: "Decisions made this session", required: false },
+          pendingItems: { type: "array", items: { type: "string" }, description: "Items still pending", required: false },
+          modifiedNotes: { type: "array", items: { type: "string" }, description: "Note names that were created/modified", required: false },
+        },
+        execute: async (params: any) => {
+          const savePath = await secondBrain!.saveSession(params);
+          return `Session saved to ${savePath}`;
+        },
+      });
+      if (!toolRegistry.has("resume_session")) {
+        toolRegistry.register(createResumeTool());
+        console.log("[Brain] Registered resume_session tool");
+      }
+      if (!toolRegistry.has("save_session")) {
+        toolRegistry.register(createSaveTool());
+        console.log("[Brain] Registered save_session tool");
+      }
+    }
+
+    // Register Third Brain web tools
+    if (thirdBrain) {
+      const createSearchWebTool = () => ({
+        name: "search_web",
+        description: "Search the internet for current information. Returns snippets and URLs. Use for recent news, documentation, or any info the LLM may not know.",
+        category: "web",
+        parameters: {
+          query: { type: "string", description: "Search query", required: true },
+          maxResults: { type: "number", description: "Max results (default 5)", required: false },
+        },
+        execute: async (params: any) => {
+          const results = await thirdBrain!.search(params.query, params.maxResults);
+          if (results.length === 0) return "No results found.";
+          return results.map((r, i) =>
+            `${i + 1}. **${r.title}**\n   ${r.snippet}\n   ${r.url}`
+          ).join("\n\n");
+        },
+      });
+      const createScrapeUrlTool = () => ({
+        name: "scrape_url",
+        description: "Fetch a web page and convert it to clean markdown. Use to read documentation, articles, or any URL content in full.",
+        category: "web",
+        parameters: {
+          url: { type: "string", description: "Full URL to scrape", required: true },
+        },
+        execute: async (params: any) => {
+          const result = await thirdBrain!.scrapeAndSummarize(params.url);
+          return result;
+        },
+      });
+      const createResearchTool = () => ({
+        name: "research_topic",
+        description: "Search the web for a topic, then scrape the top pages for full content. Returns search results + page contents. Best for deep research.",
+        category: "web",
+        parameters: {
+          query: { type: "string", description: "Research topic or question", required: true },
+          pagesToRead: { type: "number", description: "Number of pages to scrape (default 2, max 5)", required: false },
+        },
+        execute: async (params: any) => {
+          const data = await thirdBrain!.searchThenScrape(params.query, params.pagesToRead ?? 2);
+          const parts = ["## Search Results", ...data.searchResults.map((r, i) =>
+            `${i + 1}. [${r.title}](${r.url}) - ${r.snippet}`
+          )];
+          if (data.scrapedPages.length > 0) {
+            parts.push("\n## Scraped Content");
+            for (const p of data.scrapedPages) {
+              parts.push(`\n### ${p.title}\n${p.markdown.slice(0, 3000)}\n`);
+            }
+          }
+          return parts.join("\n");
+        },
+      });
+      if (!toolRegistry.has("search_web")) {
+        toolRegistry.register(createSearchWebTool());
+        console.log("[Brain] Registered search_web tool");
+      }
+      if (!toolRegistry.has("scrape_url")) {
+        toolRegistry.register(createScrapeUrlTool());
+        console.log("[Brain] Registered scrape_url tool");
+      }
+      if (!toolRegistry.has("research_topic")) {
+        toolRegistry.register(createResearchTool());
+        console.log("[Brain] Registered research_topic tool");
+      }
     }
   }
 
@@ -1261,6 +1493,12 @@ export async function createBrain(
     return { ok: true };
   });
 
+  ipc.register("llm.saveSettings", async (params: any) => {
+    const { saveLLMSettings } = await import("../daemon/llm-settings.ts");
+    saveLLMSettings(sovereignConfig, params);
+    return { ok: true };
+  });
+
   ipc.register("config.reload", async () => {
     const { mergeLLMSettingsIntoConfig } = await import("../daemon/llm-settings.ts");
     const { atomicReloadProviders, configureLLMTiers } = await import("../llm/config-binding.ts");
@@ -1268,9 +1506,18 @@ export async function createBrain(
     mergeLLMSettingsIntoConfig(sovereignConfig);
     const llmConfig = (sovereignConfig as any)?.llm ?? {};
     const llmManager = agentService.getLLMManager();
-    atomicReloadProviders(llmManager, llmConfig.providers ?? {});
+    atomicReloadProviders(llmManager, llmConfig.providers ?? {}, llmConfig.default);
     configureLLMTiers(llmManager, llmConfig);
-    console.log("[Brain] Config reloaded");
+    
+    // Verify that primary provider is successfully registered in LLMManager
+    const primary = llmManager.getPrimary();
+    if (primary) {
+      const providerObj = llmManager.getProvider(primary);
+      if (!providerObj) {
+        throw new Error(`Config validation failed: Primary provider "${primary}" was not registered in LLMManager.`);
+      }
+    }
+    console.log("[Brain] Config reloaded and verified");
     return { ok: true };
   });
 

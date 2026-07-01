@@ -130,9 +130,15 @@ export function registerLLMProviders(
 export function atomicReloadProviders(
   manager: LLMManager,
   providers: Record<string, LLMProviderEntry>,
+  defaultModel?: string,
 ): LLMProvider[] {
   const built = buildProviders(providers);
-  manager.replaceProviders(built, '', []);
+  let primary = '';
+  if (defaultModel) {
+    const ref = parseModelRef(defaultModel);
+    if (ref) primary = ref.provider;
+  }
+  manager.replaceProviders(built, primary, []);
   return built;
 }
 

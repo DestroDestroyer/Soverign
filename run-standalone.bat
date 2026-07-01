@@ -69,4 +69,4 @@ echo.
 echo Press Ctrl+C to stop.
 echo.
 
-call bun run src/standalone-server.ts
+call bun run src/daemon/index.ts

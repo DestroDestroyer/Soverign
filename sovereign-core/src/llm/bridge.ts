@@ -35,14 +35,14 @@ export interface ProviderHealth {
 /** Read the current default model from config.yaml */
 function readConfigModel(): { provider: string; model: string } {
   try {
-    if (!existsSync(CONFIG_PATH)) return { provider: 'ollama', model: 'sam860/falcon-h1:1.5b-deep-Q4_0' };
+    if (!existsSync(CONFIG_PATH)) return { provider: 'ollama', model: 'qwen2.5:1.5b' };
     const yaml = readFileSync(CONFIG_PATH, 'utf8');
     const match = yaml.match(/default:\s*"([^"]+)"/);
-    if (!match) return { provider: 'ollama', model: 'sam860/falcon-h1:1.5b-deep-Q4_0' };
+    if (!match) return { provider: 'ollama', model: 'qwen2.5:1.5b' };
     const [providerPart, ...modelParts] = match[1].split(':');
     return { provider: providerPart, model: modelParts.join(':') };
   } catch {
-    return { provider: 'ollama', model: 'sam860/falcon-h1:1.5b-deep-Q4_0' };
+    return { provider: 'ollama', model: 'qwen2.5:1.5b' };
   }
 }
 

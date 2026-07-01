@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('api', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   saveConfig: (config) => ipcRenderer.invoke('save-config', config),
   checkDaemonStatus: () => ipcRenderer.invoke('check-daemon-status'),
+  getSystemStatus: () => ipcRenderer.invoke('get-system-status'),
   startDaemon: (options) => ipcRenderer.invoke('start-daemon', options),
   stopDaemon: () => ipcRenderer.invoke('stop-daemon'),
   pullModel: (modelName) => ipcRenderer.invoke('pull-model', modelName),
@@ -12,7 +13,7 @@ contextBridge.exposeInMainWorld('api', {
   saveApiConfig: (data) => ipcRenderer.invoke('save-api-config', data),
   getApiConfig: () => ipcRenderer.invoke('get-api-config'),
   scanHardware: () => ipcRenderer.invoke('scan-hardware'),
-  getSystemSpecs: () => ipcRenderer.invoke('scan-hardware'),
+  getSystemSpecs: () => ipcRenderer.invoke('get-system-specs'),
   getGpuVram: () => ipcRenderer.invoke('get-gpu-vram'),
   getCompatibleModels: (ram, vram) => ipcRenderer.invoke('get-compatible-models', ram, vram),
   refreshModelPool: () => ipcRenderer.invoke('refresh-model-pool'),
@@ -71,9 +72,16 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Verify & Download ─────────────────────────────────────────────────
   verifyAndDownload: () => ipcRenderer.invoke('verify-and-download'),
+  downloadBun: () => ipcRenderer.invoke('download-bun'),
+  getBunPath: () => ipcRenderer.invoke('get-bun-path'),
   onVerifyStatus: (callback) => {
     const sub = (event, data) => callback(data);
     ipcRenderer.on('verify-status-update', sub);
     return () => ipcRenderer.removeListener('verify-status-update', sub);
-  }
+  },
+
+  // ── PAF (Problem Detect & Fix) Watchdog ────────────────────────────
+  startPafWatchdog: () => ipcRenderer.invoke('start-paf-watchdog'),
+  checkPafStatus: () => ipcRenderer.invoke('check-paf-status'),
+  triggerPafScan: () => ipcRenderer.invoke('trigger-paf-scan')
 });

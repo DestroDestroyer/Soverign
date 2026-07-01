@@ -867,14 +867,12 @@ interface ShellLayoutProps {
   onFocusCard: (id: string) => void;
   onClarifier?: (id: string, decision: "confirm" | "cancel") => void;
   onRepeatBack?: (id: string, decision: "confirm" | "cancel") => void;
-  // Phase 6.1.5 / 6.1.6 — RoomWindow controls
   onRoomClose?: (id: string) => void;
   onRoomMinimize?: (id: string) => void;
   onRoomRestore?: (id: string) => void;
   onRoomExpand?: (id: string) => void;
   onRoomLayoutChange?: (id: string, next: { mode: "inline" } | { mode: "floating"; rect: LayoutRect }) => void;
   devAppend?: () => void;
-  // Voice
   voiceState: VoiceState;
   suggestions: string[];
   vu: number;
@@ -882,9 +880,9 @@ interface ShellLayoutProps {
   onTapOrb: () => void;
   onSuggestion: (text: string) => void;
   onToggleMute: () => void;
-  // Palette (Phase 5A)
   onOpenPalette: () => void;
-  // Phase 6.2-A — Notification center (live shell only; mock omits)
+  viewMode?: "chat" | "graph";
+  onViewModeChange?: (next: "chat" | "graph") => void;
   notificationCount?: number;
   notificationsOpen?: boolean;
   onToggleNotifications?: () => void;
@@ -917,6 +915,8 @@ function ShellLayout({
   onSuggestion,
   onToggleMute,
   onOpenPalette,
+  viewMode,
+  onViewModeChange,
   notificationCount,
   notificationsOpen,
   onToggleNotifications,
@@ -928,6 +928,8 @@ function ShellLayout({
         <Header
           connection={connection}
           onPalette={onOpenPalette}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
           notificationCount={notificationCount}
           notificationsOpen={notificationsOpen}
           onToggleNotifications={onToggleNotifications}

@@ -98,9 +98,13 @@ export type LLMOptions = {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  /** Ollama-specific: context window size. If unset, Ollama uses its own default per model. */
+  num_ctx?: number;
   tools?: LLMTool[];
   stream?: boolean;
   tool_choice?: 'auto' | 'none' | 'required';  // 'auto' enables tool calling when available
+  /** Ollama-specific: how long to keep the model loaded in memory (e.g. "5m", "10m", "1h"). Default "5m". */
+  keep_alive?: string;
 };
 
 export interface LLMProvider {
