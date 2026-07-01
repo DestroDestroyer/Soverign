@@ -1,5 +1,22 @@
-import { getDb, generateId } from './schema.ts';
+import { getDb, generateId, getDbGeneration } from './schema.ts';
 import type { Entity } from './entities.ts';
+
+let _stmtCacheGen = -1;
+const _stmtCache = new Map<string, ReturnType<ReturnType<typeof getDb>['prepare']>>();
+
+function getCachedStmt(sql: string) {
+  const gen = getDbGeneration();
+  if (_stmtCacheGen !== gen) {
+    _stmtCache.clear();
+    _stmtCacheGen = gen;
+  }
+  let stmt = _stmtCache.get(sql);
+  if (!stmt) {
+    stmt = getDb().prepare(sql);
+    _stmtCache.set(sql, stmt);
+  }
+  return stmt;
+}
 
 export type Relationship = {
   id: string;
@@ -19,9 +36,6 @@ type RelationshipRow = {
   created_at: number;
 };
 
-/**
- * Parse relationship row from database, deserializing JSON fields
- */
 function parseRelationship(row: RelationshipRow): Relationship {
   return {
     ...row,
@@ -29,20 +43,16 @@ function parseRelationship(row: RelationshipRow): Relationship {
   };
 }
 
-/**
- * Create a new relationship between entities
- */
 export function createRelationship(
   from_id: string,
   to_id: string,
   type: string,
   properties?: Record<string, unknown>
 ): Relationship {
-  const db = getDb();
   const id = generateId();
   const now = Date.now();
 
-  const stmt = db.prepare(
+  const stmt = getCachedStmt(
     'INSERT INTO relationships (id, from_id, to_id, type, properties, created_at) VALUES (?, ?, ?, ?, ?, ?)'
   );
 
@@ -58,28 +68,18 @@ export function createRelationship(
   };
 }
 
-/**
- * Get a relationship by ID
- */
 export function getRelationship(id: string): Relationship | null {
-  const db = getDb();
-  const stmt = db.prepare('SELECT * FROM relationships WHERE id = ?');
+  const stmt = getCachedStmt('SELECT * FROM relationships WHERE id = ?');
   const row = stmt.get(id) as RelationshipRow | null;
-
   if (!row) return null;
-
   return parseRelationship(row);
 }
 
-/**
- * Find relationships matching query criteria
- */
 export function findRelationships(query: {
   from_id?: string;
   to_id?: string;
   type?: string;
 }): Relationship[] {
-  const db = getDb();
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -99,21 +99,16 @@ export function findRelationships(query: {
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const stmt = db.prepare(`SELECT * FROM relationships ${where} ORDER BY created_at DESC`);
+  const sql = `SELECT * FROM relationships ${where} ORDER BY created_at DESC`;
+  const stmt = getCachedStmt(sql);
   const rows = stmt.all(...params as any[]) as RelationshipRow[];
-
   return rows.map(parseRelationship);
 }
 
-/**
- * Get all relationships for an entity (both incoming and outgoing) with full entity details
- */
 export function getEntityRelationships(
   entityId: string
 ): Array<Relationship & { from_entity: Entity; to_entity: Entity }> {
-  const db = getDb();
-
-  const stmt = db.prepare(`
+  const stmt = getCachedStmt(`
     SELECT
       r.*,
       e1.id as from_entity_id,
@@ -167,12 +162,8 @@ export function getEntityRelationships(
   }));
 }
 
-/**
- * Delete a relationship
- */
 export function deleteRelationship(id: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare('DELETE FROM relationships WHERE id = ?');
+  const stmt = getCachedStmt('DELETE FROM relationships WHERE id = ?');
   const result = stmt.run(id);
   return result.changes > 0;
 }

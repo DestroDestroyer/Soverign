@@ -21,7 +21,8 @@ class BrainBridge extends EventEmitter {
     this.process = null;
     this.stdin = null;
     this.stderrBuffer = '';
-    this.buffer = '';
+    this._chunks = [];
+    this._chunksLen = 0;
     this.pending = new Map();
     this.nextId = 1;
     this.started = false;
@@ -95,7 +96,8 @@ class BrainBridge extends EventEmitter {
       this.stdin = this.process.stdin;
 
       this.process.stdout.on('data', (data) => {
-        this.buffer += data.toString();
+        this._chunks.push(data);
+        this._chunksLen += data.length;
         this._processBuffer();
       });
 
@@ -150,6 +152,11 @@ class BrainBridge extends EventEmitter {
         this._failStart(params.message || 'Unknown brain error');
       });
 
+      const onReady = (params) => {
+        clearTimeout(timer);
+      };
+      this.once('brain:ready', onReady);
+
       // Timeout
       const timer = setTimeout(() => {
         this.removeListener('brain:ready', onReady);
@@ -162,11 +169,6 @@ class BrainBridge extends EventEmitter {
           this._failStart(msg);
         }
       }, timeoutMs);
-
-      const onReady = (params) => {
-        clearTimeout(timer);
-      };
-      this.once('brain:ready', onReady);
     });
   }
 
@@ -307,8 +309,17 @@ class BrainBridge extends EventEmitter {
    * Process incoming stdout buffer — parse JSON-RPC lines.
    */
   _processBuffer() {
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || '';
+    if (this._chunks.length === 0) return;
+    const all = Buffer.concat(this._chunks, this._chunksLen);
+    this._chunks = [];
+    this._chunksLen = 0;
+
+    const lines = all.toString().split('\n');
+    const remainder = lines.pop() || '';
+    if (remainder) {
+      this._chunks.push(Buffer.from(remainder));
+      this._chunksLen += remainder.length;
+    }
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -318,10 +329,8 @@ class BrainBridge extends EventEmitter {
         const msg = JSON.parse(trimmed);
 
         if (msg.event) {
-          // Push event from brain
           this.emit(msg.event, msg.params || {});
         } else if (msg.id !== undefined) {
-          // Response to a pending request
           const pending = this.pending.get(msg.id);
           if (pending) {
             clearTimeout(pending.timer);
@@ -334,7 +343,6 @@ class BrainBridge extends EventEmitter {
           }
         }
       } catch (e) {
-        // Non-JSON line (Bun runtime output)
         if (trimmed.length > 0) {
           this.emit('log', trimmed + '\n');
         }

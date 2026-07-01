@@ -1,6 +1,22 @@
-import { getDb, generateId } from './schema.ts';
+import { getDb, generateId, getDbGeneration } from './schema.ts';
 
-/** Escape SQL LIKE wildcard characters in user input */
+let _stmtCacheGen = -1;
+const _stmtCache = new Map<string, ReturnType<ReturnType<typeof getDb>['prepare']>>();
+
+function getCachedStmt(sql: string) {
+  const gen = getDbGeneration();
+  if (_stmtCacheGen !== gen) {
+    _stmtCache.clear();
+    _stmtCacheGen = gen;
+  }
+  let stmt = _stmtCache.get(sql);
+  if (!stmt) {
+    stmt = getDb().prepare(sql);
+    _stmtCache.set(sql, stmt);
+  }
+  return stmt;
+}
+
 function escapeLike(s: string): string {
   return s.replace(/[%_\\]/g, '\\$&');
 }
@@ -27,9 +43,6 @@ type EntityRow = {
   source: string | null;
 };
 
-/**
- * Parse entity row from database, deserializing JSON fields
- */
 function parseEntity(row: EntityRow): Entity {
   return {
     ...row,
@@ -37,20 +50,16 @@ function parseEntity(row: EntityRow): Entity {
   };
 }
 
-/**
- * Create a new entity in the knowledge graph
- */
 export function createEntity(
   type: EntityType,
   name: string,
   properties?: Record<string, unknown>,
   source?: string
 ): Entity {
-  const db = getDb();
   const id = generateId();
   const now = Date.now();
 
-  const stmt = db.prepare(
+  const stmt = getCachedStmt(
     'INSERT INTO entities (id, type, name, properties, created_at, updated_at, source) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
 
@@ -75,28 +84,18 @@ export function createEntity(
   };
 }
 
-/**
- * Get an entity by ID
- */
 export function getEntity(id: string): Entity | null {
-  const db = getDb();
-  const stmt = db.prepare('SELECT * FROM entities WHERE id = ?');
+  const stmt = getCachedStmt('SELECT * FROM entities WHERE id = ?');
   const row = stmt.get(id) as EntityRow | null;
-
   if (!row) return null;
-
   return parseEntity(row);
 }
 
-/**
- * Find entities matching query criteria
- */
 export function findEntities(query: {
   type?: EntityType;
   name?: string;
   nameContains?: string;
 }): Entity[] {
-  const db = getDb();
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -116,20 +115,16 @@ export function findEntities(query: {
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const stmt = db.prepare(`SELECT * FROM entities ${where} ORDER BY updated_at DESC`);
+  const sql = `SELECT * FROM entities ${where} ORDER BY updated_at DESC`;
+  const stmt = getCachedStmt(sql);
   const rows = stmt.all(...params as any[]) as EntityRow[];
-
   return rows.map(parseEntity);
 }
 
-/**
- * Update an entity's properties
- */
 export function updateEntity(
   id: string,
   updates: Partial<Pick<Entity, 'name' | 'properties' | 'type'>>
 ): Entity | null {
-  const db = getDb();
   const entity = getEntity(id);
   if (!entity) return null;
 
@@ -153,33 +148,31 @@ export function updateEntity(
 
   if (fields.length === 0) return entity;
 
+  const now = Date.now();
   fields.push('updated_at = ?');
-  params.push(Date.now());
-
+  params.push(now);
   params.push(id);
 
-  const stmt = db.prepare(`UPDATE entities SET ${fields.join(', ')} WHERE id = ?`);
+  const stmt = getCachedStmt(`UPDATE entities SET ${fields.join(', ')} WHERE id = ?`);
   stmt.run(...params as any[]);
 
-  return getEntity(id);
+  return {
+    ...entity,
+    ...(updates.name !== undefined && { name: updates.name }),
+    ...(updates.type !== undefined && { type: updates.type }),
+    ...(updates.properties !== undefined && { properties: updates.properties }),
+    updated_at: now,
+  } as Entity;
 }
 
-/**
- * Delete an entity and all related facts/relationships (via cascade)
- */
 export function deleteEntity(id: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare('DELETE FROM entities WHERE id = ?');
+  const stmt = getCachedStmt('DELETE FROM entities WHERE id = ?');
   const result = stmt.run(id);
   return result.changes > 0;
 }
 
-/**
- * Search entities by name using LIKE query
- */
 export function searchEntitiesByName(query: string): Entity[] {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM entities WHERE name LIKE ? ESCAPE '\\' ORDER BY name");
+  const stmt = getCachedStmt("SELECT * FROM entities WHERE name LIKE ? ESCAPE '\\' ORDER BY name");
   const rows = stmt.all(`%${escapeLike(query)}%`) as EntityRow[];
   return rows.map(parseEntity);
 }

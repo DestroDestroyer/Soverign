@@ -1,5 +1,22 @@
-import { getDb, generateId } from './schema.ts';
+import { getDb, generateId, getDbGeneration } from './schema.ts';
 import { findEntities } from './entities.ts';
+
+let _stmtCacheGen = -1;
+const _stmtCache = new Map<string, ReturnType<ReturnType<typeof getDb>['prepare']>>();
+
+function getCachedStmt(sql: string) {
+  const gen = getDbGeneration();
+  if (_stmtCacheGen !== gen) {
+    _stmtCache.clear();
+    _stmtCacheGen = gen;
+  }
+  let stmt = _stmtCache.get(sql);
+  if (!stmt) {
+    stmt = getDb().prepare(sql);
+    _stmtCache.set(sql, stmt);
+  }
+  return stmt;
+}
 
 export type Fact = {
   id: string;
@@ -23,29 +40,22 @@ type FactRow = {
   verified_at: number | null;
 };
 
-/**
- * Parse fact row from database
- */
 function parseFact(row: FactRow): Fact {
   return { ...row };
 }
 
-/**
- * Create a new fact in the knowledge graph
- */
 export function createFact(
   subject_id: string,
   predicate: string,
   object: string,
   opts?: { confidence?: number; source?: string }
 ): Fact {
-  const db = getDb();
   const id = generateId();
   const now = Date.now();
   const confidence = opts?.confidence ?? 1.0;
   const source = opts?.source ?? null;
 
-  const stmt = db.prepare(
+  const stmt = getCachedStmt(
     'INSERT INTO facts (id, subject_id, predicate, object, confidence, source, created_at, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   );
 
@@ -64,28 +74,18 @@ export function createFact(
   };
 }
 
-/**
- * Get a fact by ID
- */
 export function getFact(id: string): Fact | null {
-  const db = getDb();
-  const stmt = db.prepare('SELECT * FROM facts WHERE id = ?');
+  const stmt = getCachedStmt('SELECT * FROM facts WHERE id = ?');
   const row = stmt.get(id) as FactRow | null;
-
   if (!row) return null;
-
   return parseFact(row);
 }
 
-/**
- * Find facts matching query criteria
- */
 export function findFacts(query: {
   subject_id?: string;
   predicate?: string;
   object?: string;
 }): Fact[] {
-  const db = getDb();
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -105,35 +105,23 @@ export function findFacts(query: {
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const stmt = db.prepare(`SELECT * FROM facts ${where} ORDER BY created_at DESC`);
+  const sql = `SELECT * FROM facts ${where} ORDER BY created_at DESC`;
+  const stmt = getCachedStmt(sql);
   const rows = stmt.all(...params as any[]) as FactRow[];
-
   return rows.map(parseFact);
 }
 
-/**
- * Query a fact by subject name and predicate
- * Example: "What is Anna's birthday?" → queryFact("Anna", "birthday")
- */
 export function queryFact(subjectName: string, predicate: string): Fact | null {
   const entities = findEntities({ name: subjectName });
-
   if (entities.length === 0) return null;
-
-  // Use the first matching entity
   const facts = findFacts({ subject_id: entities[0]!.id, predicate });
-
   return facts.length > 0 ? facts[0]! : null;
 }
 
-/**
- * Update a fact's properties
- */
 export function updateFact(
   id: string,
   updates: Partial<Pick<Fact, 'predicate' | 'object' | 'confidence' | 'source'>>
 ): Fact | null {
-  const db = getDb();
   const fact = getFact(id);
   if (!fact) return null;
 
@@ -164,27 +152,25 @@ export function updateFact(
 
   params.push(id);
 
-  const stmt = db.prepare(`UPDATE facts SET ${fields.join(', ')} WHERE id = ?`);
+  const stmt = getCachedStmt(`UPDATE facts SET ${fields.join(', ')} WHERE id = ?`);
   stmt.run(...params as any[]);
 
-  return getFact(id);
+  return {
+    ...fact,
+    ...(updates.predicate !== undefined && { predicate: updates.predicate }),
+    ...(updates.object !== undefined && { object: updates.object }),
+    ...(updates.confidence !== undefined && { confidence: updates.confidence }),
+    ...(updates.source !== undefined && { source: updates.source }),
+  };
 }
 
-/**
- * Delete a fact
- */
 export function deleteFact(id: string): boolean {
-  const db = getDb();
-  const stmt = db.prepare('DELETE FROM facts WHERE id = ?');
+  const stmt = getCachedStmt('DELETE FROM facts WHERE id = ?');
   const result = stmt.run(id);
   return result.changes > 0;
 }
 
-/**
- * Mark a fact as verified
- */
 export function verifyFact(id: string): void {
-  const db = getDb();
-  const stmt = db.prepare('UPDATE facts SET verified_at = ? WHERE id = ?');
+  const stmt = getCachedStmt('UPDATE facts SET verified_at = ? WHERE id = ?');
   stmt.run(Date.now(), id);
 }

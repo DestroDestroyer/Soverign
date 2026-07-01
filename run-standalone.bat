@@ -60,6 +60,7 @@ REM Set environment variables
 set SOVEREIGN_PORT=3142
 set OLLAMA_URL=http://localhost:11434
 set OLLAMA_MODEL=mistral
+set SOVEREIGN_OLLAMA_KEEP_ALIVE=24h
 
 REM Start the standalone server
 echo.

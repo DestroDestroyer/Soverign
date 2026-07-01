@@ -161,11 +161,7 @@ class ThreadSafeState {
 
   acquireLock(operation) {
     const next = this.lock.then(async () => {
-      try {
-        return await operation();
-      } finally {
-        // Lock released
-      }
+      return await operation();
     });
     this.lock = next.catch(() => {});
     return next;
@@ -535,12 +531,22 @@ class SovereignDesktopApp {
       webPreferences.allowRunningInsecureContent = false;
     });
 
-    // Renderer Crash Watchdog
+    // Renderer Crash Watchdog — auto-recover by reloading
     win.webContents.on('render-process-gone', (event, details) => {
       console.error('[CRASH] Renderer process gone:', details);
+      const logLine = `[CRASH] Renderer process gone: ${JSON.stringify(details)}\n`;
       try {
-        fs.appendFileSync(sovereignLogFile, `[CRASH] Renderer process gone: ${JSON.stringify(details)}\n`, 'utf8');
+        fs.appendFileSync(sovereignLogFile, logLine, 'utf8');
       } catch {}
+      setTimeout(() => {
+        try {
+          if (!win.isDestroyed()) {
+            win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+          }
+        } catch (e) {
+          console.error('[CRASH] Failed to reload renderer:', e);
+        }
+      }, 1000);
     });
 
     win.once('ready-to-show', () => {
@@ -590,20 +596,9 @@ class SovereignDesktopApp {
   }
 
   checkDaemonPort() {
-    return new Promise((resolve) => {
-      const socket = new net.Socket();
-      const onError = () => {
-        socket.destroy();
-        resolve(false);
-      };
-      socket.setTimeout(800);
-      socket.once('error', onError);
-      socket.once('timeout', onError);
-      socket.connect(BRAIN_PORT, '127.0.0.1', () => {
-        socket.end();
-        resolve(true);
-      });
-    });
+    return fetch(`http://127.0.0.1:${BRAIN_PORT}/health`, { signal: AbortSignal.timeout(800) })
+      .then(r => r.ok)
+      .catch(() => false);
   }
 
   emitBrainReady() {
@@ -617,13 +612,10 @@ class SovereignDesktopApp {
   sendLog(source, data) {
     const win = this.threadSafe.getMainWindow();
     if (win && !win.isDestroyed()) {
-      let text = data.toString();
-      text = text.replace(/(Bearer\s+)[a-zA-Z0-9_\-\.]{10,}/g, '$1[REDACTED]');
-      text = text.replace(/(api_key["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
-      text = text.replace(/(apiKey["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
-      text = text.replace(/(password["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{4,}(["'])/gi, '$1[REDACTED]$2');
-      text = text.replace(/(token["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
-      text = text.replace(/(secret["']?\s*:\s*["'])[a-zA-Z0-9_\-\.]{10,}(["'])/gi, '$1[REDACTED]$2');
+      const text = data.toString().replace(
+        /((?:Bearer|api_key|apiKey|password|token|secret)["']?\s*[:=]\s*["']?)[a-zA-Z0-9_\-\.]{4,}(["'])?/gi,
+        '$1[REDACTED]$2'
+      );
       win.webContents.send('log-data', { source, text });
     }
   }
@@ -845,21 +837,25 @@ class SovereignDesktopApp {
     return { success: true };
   }
 
-  startPafWatchdog() {
+  async startPafWatchdog() {
     const pafScript = path.join(projectRoot, '.agents', 'problem-detect-and-fix.ts');
     if (!fs.existsSync(pafScript)) {
       this.sendLog('daemon', '[PAF] problem-detect-and-fix.ts not found, skipping\n');
       return;
     }
-    // Check if already running via tasklist
     try {
-      const result = execSync(`tasklist /fi "IMAGENAME eq bun.exe" /v /fo csv 2>nul`, { timeout: 3000, encoding: 'utf-8' });
-      if (result.includes('problem-detect-and-fix') || result.includes('PAF-Watchdog')) {
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('tasklist /fi "IMAGENAME eq bun.exe" /v /fo csv', { timeout: 3000 }, (err, stdout) => {
+          if (err) reject(err); else resolve({ stdout });
+        });
+      });
+      if (stdout.includes('problem-detect-and-fix') || stdout.includes('PAF-Watchdog')) {
         this.sendLog('daemon', '[PAF] Watchdog already running\n');
         return;
       }
     } catch {}
-    const proc = spawn('bun', ['run', pafScript, '--watchdog', '--poll=10000'], {
+    const bunExe = config.bunPath || 'bun';
+    const proc = spawn(bunExe, ['run', pafScript, '--watchdog', '--poll=10000'], {
       cwd: projectRoot, windowsHide: true, detached: true, shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

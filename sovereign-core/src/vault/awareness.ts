@@ -1,11 +1,4 @@
-/**
- * Vault — Awareness CRUD
- *
- * Database operations for screen_captures, awareness_sessions, and awareness_suggestions tables.
- * Follows the same patterns as observations.ts and commitments.ts.
- */
-
-import { getDb, generateId } from './schema.ts';
+import { getDb, generateId, getDbGeneration } from './schema.ts';
 import type {
   ScreenCaptureRow,
   SessionRow,
@@ -13,6 +6,23 @@ import type {
   SuggestionType,
   AppUsageStat,
 } from '../awareness/types.ts';
+
+let _stmtCacheGen = -1;
+const _stmtCache = new Map<string, ReturnType<ReturnType<typeof getDb>['prepare']>>();
+
+function getCachedStmt(sql: string) {
+  const gen = getDbGeneration();
+  if (_stmtCacheGen !== gen) {
+    _stmtCache.clear();
+    _stmtCacheGen = gen;
+  }
+  let stmt = _stmtCache.get(sql);
+  if (!stmt) {
+    stmt = getDb().prepare(sql);
+    _stmtCache.set(sql, stmt);
+  }
+  return stmt;
+}
 
 // ── Screen Captures ──
 
@@ -29,11 +39,10 @@ export function createCapture(data: {
   filePath?: string;
   retentionTier?: 'full' | 'key_moment' | 'metadata_only';
 }): ScreenCaptureRow {
-  const db = getDb();
   const id = generateId();
   const now = Date.now();
 
-  db.prepare(`
+  getCachedStmt(`
     INSERT INTO screen_captures
       (id, timestamp, session_id, sidecar_id, image_path, pixel_change_pct,
        ocr_text, app_name, window_title, url, file_path, retention_tier, created_at)
@@ -72,32 +81,28 @@ export function createCapture(data: {
 }
 
 export function getCapture(id: string): ScreenCaptureRow | null {
-  const db = getDb();
-  return db.prepare('SELECT * FROM screen_captures WHERE id = ?').get(id) as ScreenCaptureRow | null;
+  return getCachedStmt('SELECT * FROM screen_captures WHERE id = ?').get(id) as ScreenCaptureRow | null;
 }
 
 export function getRecentCaptures(limit: number = 50, appName?: string): ScreenCaptureRow[] {
-  const db = getDb();
   if (appName) {
-    return db.prepare(
+    return getCachedStmt(
       'SELECT * FROM screen_captures WHERE app_name = ? ORDER BY timestamp DESC LIMIT ?'
     ).all(appName, limit) as ScreenCaptureRow[];
   }
-  return db.prepare(
+  return getCachedStmt(
     'SELECT * FROM screen_captures ORDER BY timestamp DESC LIMIT ?'
   ).all(limit) as ScreenCaptureRow[];
 }
 
 export function getCapturesInRange(startTime: number, endTime: number): ScreenCaptureRow[] {
-  const db = getDb();
-  return db.prepare(
+  return getCachedStmt(
     'SELECT * FROM screen_captures WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC'
   ).all(startTime, endTime) as ScreenCaptureRow[];
 }
 
 export function getAppUsageStats(startTime: number, endTime: number): AppUsageStat[] {
-  const db = getDb();
-  const rows = db.prepare(`
+  const rows = getCachedStmt(`
     SELECT app_name, COUNT(*) as capture_count
     FROM screen_captures
     WHERE timestamp >= ? AND timestamp <= ? AND app_name IS NOT NULL
@@ -110,40 +115,35 @@ export function getAppUsageStats(startTime: number, endTime: number): AppUsageSt
   return rows.map(r => ({
     app: r.app_name,
     captureCount: r.capture_count,
-    minutes: Math.round((r.capture_count * 7) / 60),  // ~7s per capture
+    minutes: Math.round((r.capture_count * 7) / 60),
     percentage: totalCaptures > 0 ? Math.round((r.capture_count / totalCaptures) * 100) : 0,
   }));
 }
 
 export function getCaptureCountSince(timestamp: number): number {
-  const db = getDb();
-  const row = db.prepare(
+  const row = getCachedStmt(
     'SELECT COUNT(*) as count FROM screen_captures WHERE timestamp >= ?'
   ).get(timestamp) as { count: number };
   return row.count;
 }
 
 export function updateCaptureRetention(id: string, tier: 'full' | 'key_moment' | 'metadata_only'): void {
-  const db = getDb();
-  db.prepare('UPDATE screen_captures SET retention_tier = ? WHERE id = ?').run(tier, id);
+  getCachedStmt('UPDATE screen_captures SET retention_tier = ? WHERE id = ?').run(tier, id);
 }
 
 export function deleteCapturesBefore(timestamp: number, retentionTier: string): number {
-  const db = getDb();
-  const result = db.prepare(
+  const result = getCachedStmt(
     'DELETE FROM screen_captures WHERE timestamp < ? AND retention_tier = ?'
   ).run(timestamp, retentionTier);
   return result.changes;
 }
 
 export function updateCaptureOcrText(id: string, ocrText: string): void {
-  const db = getDb();
-  db.prepare('UPDATE screen_captures SET ocr_text = ? WHERE id = ?').run(ocrText, id);
+  getCachedStmt('UPDATE screen_captures SET ocr_text = ? WHERE id = ?').run(ocrText, id);
 }
 
 export function getCapturesForSession(sessionId: string, limit: number = 50): ScreenCaptureRow[] {
-  const db = getDb();
-  return db.prepare(
+  return getCachedStmt(
     'SELECT * FROM screen_captures WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?'
   ).all(sessionId, limit) as ScreenCaptureRow[];
 }
@@ -155,11 +155,10 @@ export function createSession(data: {
   apps?: string[];
   projectContext?: string;
 }): SessionRow {
-  const db = getDb();
   const id = generateId();
   const now = Date.now();
 
-  db.prepare(`
+  getCachedStmt(`
     INSERT INTO awareness_sessions
       (id, started_at, ended_at, topic, apps, project_context, action_types, entity_links, summary, capture_count, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -193,8 +192,7 @@ export function createSession(data: {
 }
 
 export function getSession(id: string): SessionRow | null {
-  const db = getDb();
-  return db.prepare('SELECT * FROM awareness_sessions WHERE id = ?').get(id) as SessionRow | null;
+  return getCachedStmt('SELECT * FROM awareness_sessions WHERE id = ?').get(id) as SessionRow | null;
 }
 
 export function updateSession(id: string, updates: Partial<{
@@ -207,7 +205,6 @@ export function updateSession(id: string, updates: Partial<{
   summary: string | null;
   capture_count: number;
 }>): void {
-  const db = getDb();
   const setClauses: string[] = [];
   const params: unknown[] = [];
 
@@ -223,26 +220,23 @@ export function updateSession(id: string, updates: Partial<{
   if (setClauses.length === 0) return;
 
   params.push(id);
-  db.prepare(`UPDATE awareness_sessions SET ${setClauses.join(', ')} WHERE id = ?`).run(...params as any[]);
+  getCachedStmt(`UPDATE awareness_sessions SET ${setClauses.join(', ')} WHERE id = ?`).run(...params as any[]);
 }
 
 export function endSession(id: string, summary?: string): void {
-  const db = getDb();
-  db.prepare(
+  getCachedStmt(
     'UPDATE awareness_sessions SET ended_at = ?, summary = ? WHERE id = ?'
   ).run(Date.now(), summary ?? null, id);
 }
 
 export function getRecentSessions(limit: number = 20): SessionRow[] {
-  const db = getDb();
-  return db.prepare(
+  return getCachedStmt(
     'SELECT * FROM awareness_sessions ORDER BY started_at DESC LIMIT ?'
   ).all(limit) as SessionRow[];
 }
 
 export function incrementSessionCaptureCount(id: string): void {
-  const db = getDb();
-  db.prepare(
+  getCachedStmt(
     'UPDATE awareness_sessions SET capture_count = capture_count + 1 WHERE id = ?'
   ).run(id);
 }
@@ -256,11 +250,10 @@ export function createSuggestion(data: {
   body: string;
   context?: Record<string, unknown>;
 }): SuggestionRow {
-  const db = getDb();
   const id = generateId();
   const now = Date.now();
 
-  db.prepare(`
+  getCachedStmt(`
     INSERT INTO awareness_suggestions
       (id, type, trigger_capture_id, title, body, context, delivered, delivered_at, delivery_channel, dismissed, acted_on, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -292,45 +285,39 @@ export function createSuggestion(data: {
 }
 
 export function markSuggestionDelivered(id: string, channel: string): void {
-  const db = getDb();
-  db.prepare(
+  getCachedStmt(
     'UPDATE awareness_suggestions SET delivered = 1, delivered_at = ?, delivery_channel = ? WHERE id = ?'
   ).run(Date.now(), channel, id);
 }
 
 export function markSuggestionDismissed(id: string): void {
-  const db = getDb();
-  db.prepare('UPDATE awareness_suggestions SET dismissed = 1 WHERE id = ?').run(id);
+  getCachedStmt('UPDATE awareness_suggestions SET dismissed = 1 WHERE id = ?').run(id);
 }
 
 export function markSuggestionActedOn(id: string): void {
-  const db = getDb();
-  db.prepare('UPDATE awareness_suggestions SET acted_on = 1 WHERE id = ?').run(id);
+  getCachedStmt('UPDATE awareness_suggestions SET acted_on = 1 WHERE id = ?').run(id);
 }
 
 export function getRecentSuggestions(limit: number = 20, type?: SuggestionType): SuggestionRow[] {
-  const db = getDb();
   if (type) {
-    return db.prepare(
+    return getCachedStmt(
       'SELECT * FROM awareness_suggestions WHERE type = ? ORDER BY created_at DESC LIMIT ?'
     ).all(type, limit) as SuggestionRow[];
   }
-  return db.prepare(
+  return getCachedStmt(
     'SELECT * FROM awareness_suggestions ORDER BY created_at DESC LIMIT ?'
   ).all(limit) as SuggestionRow[];
 }
 
 export function getSuggestionCountSince(timestamp: number): number {
-  const db = getDb();
-  const row = db.prepare(
+  const row = getCachedStmt(
     'SELECT COUNT(*) as count FROM awareness_suggestions WHERE created_at >= ?'
   ).get(timestamp) as { count: number };
   return row.count;
 }
 
 export function getSuggestionStats(startTime: number, endTime: number): { total: number; actedOn: number } {
-  const db = getDb();
-  const row = db.prepare(`
+  const row = getCachedStmt(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN acted_on = 1 THEN 1 ELSE 0 END) as acted_on

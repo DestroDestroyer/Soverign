@@ -32,6 +32,9 @@ export class TaskRegistry {
   private listeners: Set<Listener> = new Set();
   private readonly maxKeepCompleted: number;
   private resolveDb: DbResolver;
+  private persistStmt: ReturnType<Database['prepare']> | null = null;
+  private deleteStmt: ReturnType<Database['prepare']> | null = null;
+  private deleteBatchStmt: ReturnType<Database['prepare']> | null = null;
 
   constructor(opts?: { maxKeepCompleted?: number; db?: DbResolver | Database | null }) {
     // How many completed/failed/cancelled tasks to retain in-memory for the
@@ -45,7 +48,31 @@ export class TaskRegistry {
     } else {
       const db = opts.db;
       this.resolveDb = () => db;
+      this.initStmts();
     }
+  }
+
+  private initStmts(): void {
+    const db = this.resolveDb();
+    if (!db) return;
+    this.persistStmt = db.prepare(`
+      INSERT INTO tasks (
+        id, status, tier, template, intent, original_message, subsystem,
+        started_at, updated_at, result_json, question, paused_conversation
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        tier = excluded.tier,
+        template = excluded.template,
+        intent = excluded.intent,
+        original_message = excluded.original_message,
+        subsystem = excluded.subsystem,
+        updated_at = excluded.updated_at,
+        result_json = excluded.result_json,
+        question = excluded.question,
+        paused_conversation = excluded.paused_conversation
+    `);
+    this.deleteStmt = db.prepare('DELETE FROM tasks WHERE id = ?');
   }
 
   /**
@@ -225,12 +252,12 @@ export class TaskRegistry {
     // maxKeepCompleted constructor option and the table follows.
     done.sort((a, b) => a.updatedAt - b.updatedAt);
     const overflow = done.length - this.maxKeepCompleted;
-    const db = this.resolveDb();
+    const stmt = this.deleteStmt;
     for (let i = 0; i < overflow; i++) {
       const victimId = done[i]!.id;
       this.tasks.delete(victimId);
-      if (db) {
-        try { db.run('DELETE FROM tasks WHERE id = ?', [victimId]); }
+      if (stmt) {
+        try { stmt.run(victimId); }
         catch (err) { console.warn('[TaskRegistry] evict delete failed:', err); }
       }
     }
@@ -241,39 +268,22 @@ export class TaskRegistry {
    * never break the live registry (caller has already mutated the cache).
    */
   private persist(record: TaskRecord): void {
-    const db = this.resolveDb();
-    if (!db) return;
+    const stmt = this.persistStmt;
+    if (!stmt) return;
     try {
-      db.run(
-        `INSERT INTO tasks (
-          id, status, tier, template, intent, original_message, subsystem,
-          started_at, updated_at, result_json, question, paused_conversation
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          status = excluded.status,
-          tier = excluded.tier,
-          template = excluded.template,
-          intent = excluded.intent,
-          original_message = excluded.original_message,
-          subsystem = excluded.subsystem,
-          updated_at = excluded.updated_at,
-          result_json = excluded.result_json,
-          question = excluded.question,
-          paused_conversation = excluded.paused_conversation`,
-        [
-          record.id,
-          record.status,
-          record.request.tier,
-          record.request.template,
-          record.request.intent,
-          record.request.original_message ?? null,
-          record.subsystem,
-          record.startedAt,
-          record.updatedAt,
-          record.result ? JSON.stringify(record.result) : null,
-          record.question ?? null,
-          record.pausedConversation ? JSON.stringify(record.pausedConversation) : null,
-        ],
+      stmt.run(
+        record.id,
+        record.status,
+        record.request.tier,
+        record.request.template,
+        record.request.intent,
+        record.request.original_message ?? null,
+        record.subsystem,
+        record.startedAt,
+        record.updatedAt,
+        record.result ? JSON.stringify(record.result) : null,
+        record.question ?? null,
+        record.pausedConversation ? JSON.stringify(record.pausedConversation) : null,
       );
     } catch (err) {
       console.warn('[TaskRegistry] persist failed:', err);

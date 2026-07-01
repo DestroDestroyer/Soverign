@@ -204,16 +204,32 @@ export class WebSocketServer {
         const url = new URL(req.url);
         const pathname = url.pathname;
 
+        // Unified CORS/Origin check — run before all routes including WS upgrade.
+        // Allows localhost, 127.0.0.1, file://, null, configured corsOrigin,
+        // or any origin whose host matches the request Host header (reverse proxy).
         const origin = req.headers.get('origin') || req.headers.get('Origin');
         if (origin) {
-          const isLocal = origin.startsWith('http://localhost:') || 
-                          origin.startsWith('http://127.0.0.1:') || 
-                          origin.startsWith('https://localhost:') || 
-                          origin.startsWith('https://127.0.0.1:') || 
-                          origin === 'file://' || 
-                          origin === 'null';
-          if (!isLocal) {
-            return new Response('Forbidden', { status: 403 });
+          const expectedOrigin = self.corsOrigin || `http://localhost:${self.port}`;
+          let allowed = origin === expectedOrigin ||
+                        origin === 'file://' ||
+                        origin === 'null';
+          if (!allowed) {
+            try {
+              const originHost = new URL(origin).host;
+              const requestHost = req.headers.get('host');
+              if (requestHost && originHost === requestHost) {
+                allowed = true;
+              }
+            } catch {}
+          }
+          if (!allowed) {
+            const isLocal = origin.startsWith('http://localhost:') ||
+                            origin.startsWith('http://127.0.0.1:') ||
+                            origin.startsWith('https://localhost:') ||
+                            origin.startsWith('https://127.0.0.1:');
+            if (!isLocal) {
+              return new Response('Forbidden', { status: 403 });
+            }
           }
         }
 
@@ -251,7 +267,6 @@ export class WebSocketServer {
         if (self.authToken && !isPublicRoute(pathname, req.method)) {
           const cookieToken = getCookie(req, 'token');
           if (!cookieToken || !safeCompare(cookieToken, self.authToken)) {
-            // Check ?token= query param — set cookie via Set-Cookie and redirect
             const queryToken = url.searchParams.get('token');
             if (queryToken && safeCompare(queryToken, self.authToken)) {
               const cleanParams = new URLSearchParams(url.searchParams);
@@ -266,7 +281,6 @@ export class WebSocketServer {
                 },
               });
             }
-            // No valid auth — API & WebSocket get JSON 401; browsers get the auth error page
             if (pathname === '/ws') {
               const success = server.upgrade(req, { data: { authFailed: true } });
               if (success) return undefined;
@@ -281,26 +295,8 @@ export class WebSocketServer {
           }
         }
 
-        // 2. WebSocket upgrade — validate Origin to block cross-origin connections
-        //    (e.g., dev server iframes on different ports attempting ws://localhost:3142/ws).
-        //    Allow when Origin's host matches the request Host header, which covers
-        //    reverse-proxy deployments (Opencove, Cloudflare tunnel, ngrok, etc.).
+        // 2. WebSocket upgrade — origin already validated above
         if (pathname === '/ws') {
-          const origin = req.headers.get('origin');
-          if (origin) {
-            const expectedOrigin = self.corsOrigin || `http://localhost:${self.port}`;
-            let sameHost = false;
-            try {
-              const originHost = new URL(origin).host;
-              const requestHost = req.headers.get('host');
-              sameHost = !!requestHost && originHost === requestHost;
-            } catch {
-              sameHost = false;
-            }
-            if (origin !== expectedOrigin && !sameHost) {
-              return new Response('Forbidden: origin mismatch', { status: 403 });
-            }
-          }
           const success = server.upgrade(req, { data: {} });
           if (success) return undefined;
           return new Response('WebSocket upgrade failed', { status: 500 });
@@ -599,9 +595,15 @@ export class WebSocketServer {
     }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.server) {
-      this.server.stop();
+      for (const client of this.clients) {
+        try {
+          client.close(1001, 'Server shutting down');
+        } catch {}
+      }
+      await Bun.sleep(100);
+      this.server.stop(true);
       this.server = null;
       this.clients.clear();
       console.log('[WebSocketServer] Stopped');

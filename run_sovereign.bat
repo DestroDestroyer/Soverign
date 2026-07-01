@@ -8,6 +8,7 @@ set "WORKSPACE_ROOT=%~dp0"
 set "APP_DIR=%WORKSPACE_ROOT%sovereign-desktop"
 set "CORE_DIR=%WORKSPACE_ROOT%sovereign-core"
 set "ELECTRON_EXE=%APP_DIR%\node_modules\electron\dist\electron.exe"
+set "SOVEREIGN_OLLAMA_KEEP_ALIVE=24h"
 set "PAF_SCRIPT=%WORKSPACE_ROOT%.agents\problem-detect-and-fix.ts"
 
 REM Ensure node_modules\electron is installed

@@ -1,6 +1,11 @@
 import { Database } from "bun:sqlite";
 
 let dbInstance: Database | null = null;
+let dbGeneration = 0;
+
+export function getDbGeneration(): number {
+  return dbGeneration;
+}
 
 /**
  * Generate a short unique ID for database records
@@ -29,6 +34,7 @@ export function closeDb(): void {
   if (dbInstance) {
     dbInstance.close();
     dbInstance = null;
+    dbGeneration++;
   }
 }
 
@@ -47,6 +53,12 @@ export function initDatabase(dbPath: string = ":memory:"): Database {
 
     // Enable WAL mode for better concurrency
     dbInstance.exec("PRAGMA journal_mode=WAL");
+
+    // Performance PRAGMAs
+    dbInstance.exec("PRAGMA synchronous = NORMAL");
+    dbInstance.exec("PRAGMA cache_size = -10000");
+    dbInstance.exec("PRAGMA temp_store = MEMORY");
+    dbInstance.exec("PRAGMA busy_timeout = 5000");
 
     // Enable foreign key constraints
     dbInstance.exec("PRAGMA foreign_keys=ON");
@@ -155,7 +167,9 @@ function createTables(db: Database): void {
   `);
 
   // Migration: add sort_order to existing databases
-  try { db.run('ALTER TABLE commitments ADD COLUMN sort_order INTEGER DEFAULT 0'); } catch {}
+  if (!columnExists(db, 'commitments', 'sort_order')) {
+    db.run('ALTER TABLE commitments ADD COLUMN sort_order INTEGER DEFAULT 0');
+  }
 
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_commitments_status ON commitments(status)
@@ -273,11 +287,7 @@ function createTables(db: Database): void {
   `);
 
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_conv_msg_conv ON conversation_messages(conversation_id)
-  `);
-
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_conv_msg_time ON conversation_messages(created_at)
+    CREATE INDEX IF NOT EXISTS idx_conv_msg_composite ON conversation_messages(conversation_id, created_at)
   `);
 
   // Content pipeline: items moving through creation stages
@@ -366,7 +376,9 @@ function createTables(db: Database): void {
   // blocked waiting on them (result flows back to the conversation); the
   // approve endpoints only flip the status. 'deferred' keeps the legacy
   // execute-on-approve behavior.
-  try { db.run(`ALTER TABLE approval_requests ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'deferred'`); } catch {}
+  if (!columnExists(db, 'approval_requests', 'execution_mode')) {
+    db.run(`ALTER TABLE approval_requests ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'deferred'`);
+  }
 
   // Authority: Audit trail
   db.run(`
@@ -391,7 +403,9 @@ function createTables(db: Database): void {
   // Migration: tag the resolution channel ('click' | 'voice' | 'system' | null).
   // Useful forensics if a voice misfire ever resolves something it shouldn't.
   // Column is nullable so existing rows remain valid; new rows specify it.
-  try { db.run(`ALTER TABLE audit_trail ADD COLUMN channel TEXT`); } catch {}
+  if (!columnExists(db, 'audit_trail', 'channel')) {
+    db.run(`ALTER TABLE audit_trail ADD COLUMN channel TEXT`);
+  }
 
   // Authority: Approval patterns (for learning)
   db.run(`
@@ -427,10 +441,14 @@ function createTables(db: Database): void {
     )
   `);
   // OCR moved to sidecar; thumbnails are no longer generated.
-  try { db.run('ALTER TABLE screen_captures DROP COLUMN thumbnail_path'); } catch { /* already dropped or never present */ }
+  if (columnExists(db, 'screen_captures', 'thumbnail_path')) {
+    db.run('ALTER TABLE screen_captures DROP COLUMN thumbnail_path');
+  }
   // Track which sidecar owns the capture file so the brain can route
   // fetch_capture RPCs correctly (sidecars may run on different hosts).
-  try { db.run('ALTER TABLE screen_captures ADD COLUMN sidecar_id TEXT'); } catch { /* already present */ }
+  if (!columnExists(db, 'screen_captures', 'sidecar_id')) {
+    db.run('ALTER TABLE screen_captures ADD COLUMN sidecar_id TEXT');
+  }
   db.run(`CREATE INDEX IF NOT EXISTS idx_captures_timestamp ON screen_captures(timestamp)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_captures_session ON screen_captures(session_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_captures_retention ON screen_captures(retention_tier)`);
@@ -728,6 +746,7 @@ function createTables(db: Database): void {
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_recent_objects_picked ON recent_objects(picked_at DESC)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_recent_objects_lookup ON recent_objects(object_type, object_id)`);
 
   // Agent activity history (Phase 6.3 — Agents Room).
   // Persisted snapshot of `subAgentEvents` so the dashboard can show a
@@ -826,6 +845,16 @@ function createTables(db: Database): void {
   db.run(`CREATE INDEX IF NOT EXISTS idx_models_local ON models(is_local)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_models_ram ON models(min_ram, min_vram)`);
   // Safe migration: add columns if upgrading from older schema
-  try { db.run(`ALTER TABLE models ADD COLUMN parameter_count REAL NOT NULL DEFAULT 0`); } catch {}
-  try { db.run(`ALTER TABLE models ADD COLUMN last_seen_at INTEGER`); } catch {}
+  if (!columnExists(db, 'models', 'parameter_count')) {
+    db.run(`ALTER TABLE models ADD COLUMN parameter_count REAL NOT NULL DEFAULT 0`);
+  }
+  if (!columnExists(db, 'models', 'last_seen_at')) {
+    db.run(`ALTER TABLE models ADD COLUMN last_seen_at INTEGER`);
+  }
+}
+
+/** Check if a column exists in a table using PRAGMA table_info (avoids try-catch pattern). */
+function columnExists(db: Database, table: string, column: string): boolean {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return cols.some(c => c.name === column);
 }

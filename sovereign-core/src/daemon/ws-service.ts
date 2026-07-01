@@ -381,7 +381,9 @@ export class WebSocketService implements Service {
       clearInterval(this.voiceConfirmationSweepTimer);
       this.voiceConfirmationSweepTimer = null;
     }
-    this.wsServer.stop();
+    if (this.wsServer) {
+      await this.wsServer.stop();
+    }
     this._status = 'stopped';
     console.log('[WSService] Stopped');
   }
